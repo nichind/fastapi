@@ -1,0 +1,14 @@
+uvicorn
+fastapi
+slowapi
+pyjwt
+cffi
+sqlalchemy[asyncio]
+aiosqlite
+python-dotenv
+aiohttp
+loguru
+cryptography
+python-jose[cryptography]
+httpx
+psutil
