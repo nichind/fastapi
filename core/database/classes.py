@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     func,
     Identity,
+    insert,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -20,15 +21,14 @@ from uuid import uuid4
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from os import getenv, path
+from os import getenv
 from dotenv import load_dotenv
-from threading import Thread
 from time import sleep
 from loguru import logger
-from random import choice, shuffle
 from string import ascii_letters, digits
+from random import choice
 from asyncio import get_event_loop, new_event_loop
-import core.database.exceptions as exceptions
+import core.database.exceptions as database_exc
 
 
 load_dotenv()
@@ -66,7 +66,7 @@ class PerfomanceMeter:
             logger.info(
                 f"Average time per action (last 100): {sum(self.all[-100:]) / len(self.all[-100:])}s"
             )
-
+            
 
 perfomance = PerfomanceMeter()
 
@@ -74,43 +74,105 @@ perfomance = PerfomanceMeter()
 class BaseItem(Base):
     __abstract__ = True
 
-    id = Column(Integer, Identity(start=1, increment=1), primary_key=True)
+    id = Column(Integer, Identity(start=1, increment=1), primary_key=True, unique=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
+    is_deleted = Column(Boolean)
 
     @classmethod
     async def add(cls, **kwargs) -> Self:
         start_at = datetime.now()
-        async with engines[cls.__table_args__.get("comment", "main")].begin() as conn:
+        async with sessions[cls.__table_args__.get("comment", "main")].begin() as session:
             item = cls(**kwargs)
-            conn.add(item)
-            await conn.commit()
+            session.add(item)
+            await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
         return await cls.get(id=item.id)
 
     @classmethod
     async def get(cls, **kwargs) -> Self | None:
         start_at = datetime.now()
-        async with engines[cls.__table_args__.get("comment", "main")].begin() as conn:
+        async with sessions[cls.__table_args__.get("comment", "main")].begin() as session:
             item = (
-                (await conn.execute(select(cls).filter_by(**kwargs))).scalars().first()
+                (await session.execute(select(User).filter_by(**kwargs)))
+                .scalars()
+                .first()
             )
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
         return item
 
     @classmethod
-    async def update(cls, **kwargs) -> Self | None:
+    async def update(cls, id: int = None, ignore_crypt: bool = False, ignore_blacklist: bool = False, **kwargs) -> Self | None:
         start_at = datetime.now()
-        async with engines[cls.__table_args__.get("comment", "main")].begin() as conn:
-            item = (
-                (await conn.execute(select(cls).filter_by(**kwargs))).scalars().first()
+        if not id:
+            id = cls.id if cls.id else None
+        if not id:
+            raise database_exc.NoID
+        async with sessions[cls.__table_args__.get("comment", "main")].begin() as session:
+            cls = (
+                (await session.execute(select(cls).filter_by(id=id))).scalars().first()
             )
             for key, value in kwargs.items():
-                setattr(item, key, value)
-            await conn.commit()
+                if not ignore_blacklist and await cls.is_value_blacklisted(key, value):
+                    raise database_exc.Blacklisted
+                if key in getenv("CRYPT_VALUES", '').split(",") and not ignore_crypt:
+                    value = await cls._crypt(value)
+                setattr(cls, key, value)
+            await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
-        return item
+        return await cls.get(id=id)
 
+    @classmethod
+    async def _crypt(cls, value: str, crypt_key: str = None) -> str:
+        if not crypt_key:
+            crypt_key = getenv("CRYPT_KEY", None)
+        if not crypt_key:
+            raise database_exc.NoCryptKey("CRYPT_KEY env is not set and no crypt key was provided")
+        crypt = Fernet(crypt_key.encode("utf-8"))
+        return crypt.encrypt(value.encode()).decode()
+    
+    @classmethod
+    async def _decrypt(cls, value: str, crypt_key: str = None) -> str:
+        if not crypt_key:
+            crypt_key = getenv("CRYPT_KEY", None)
+        if not crypt_key:
+            raise database_exc.NoCryptKey("CRYPT_KEY env is not set and no crypt key was provided")
+        crypt = Fernet(crypt_key.encode("utf-8"))
+        return crypt.decrypt(value.encode()).decode()
+    
+    @classmethod
+    async def _compare(cls, decrypted_value: str, encrypted_value: str, crypt_key: str = None) -> bool:
+        if not crypt_key:
+            crypt_key = getenv("CRYPT_KEY", None)
+        if not crypt_key:
+            raise Exception
+        crypt = Fernet(crypt_key.encode("utf-8"))
+        return crypt.decrypt(encrypted_value.encode()).decode() == decrypted_value
+    
+    @classmethod
+    async def _generate_secret(cls, length: int = 32) -> str:
+        secret = "".join(choice(ascii_letters + digits) for _ in range(length))
+        secret = secret[0:3] + '.' + secret[5:]
+        if len(secret) >= 32:
+            secret = secret[0:28] + '.' + secret[30:] 
+        return secret
+
+    @classmethod
+    async def is_value_blacklisted(cls, key: str, value: str) -> bool:
+        blacklist_file = f"./core/database/blacklists/{key}.txt"
+        if not os.path.exists(blacklist_file):
+            return False
+
+        with open(blacklist_file) as f:
+            for line in f:
+                if line.strip() == str(value):
+                    return True
+
+        return False
+    
+    def __repr__(self):
+        return f"<{self.__class__.__name__} [{self.__table_args__.get('comment', 'main')}] {self.id}>"
+    
 
 class ServerSetting(BaseItem):
     __tablename__ = "server_settings"
@@ -118,6 +180,17 @@ class ServerSetting(BaseItem):
 
     key = Column(String, unique=True)
     value = Column(String)
+    
+    
+class User(BaseItem):
+    __tablename__ = "users"
+    __table_args__ = {"comment": "main"}
+
+    username = Column(String(48), unique=True)
+    email = Column(String(128), unique=True)
+    password = Column(String(256))
+    token = Column(String(256), unique=True)
+    is_admin = Column(Boolean)
 
 
 async def create_tables():
@@ -128,9 +201,9 @@ async def create_tables():
             async with engine.begin() as conn:
                 for table in Base.metadata.sorted_tables:
                     if table.comment == name:
-                        await conn.run_sync(table.create, checkfirst=True)
+                        await conn.run_sync(table.create, checkfirst=True)                     
     except Exception as exc:
-        print(exc)
+        print("Error while creating tables:", exc)
 
 
 def create_db():
