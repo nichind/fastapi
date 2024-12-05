@@ -90,6 +90,7 @@ app.root = "/"
 app.translator = Translator()
 app.logger = logger
 app.tl = app.translator.tl
+app.tlbook = app.translator.tlbook
 app.title = app.tl("title")
 app.description = app.tl("description")
 

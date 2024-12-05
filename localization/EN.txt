@@ -1,2 +1,8 @@
 DESCRIPTION=Docs
 TITLE=Public API
+INVALID_TOKEN=Invalid token
+NOT_FOUND=Not found
+INVALID_REQUEST=Invalid request
+INVALID_CREDENTIALS=Invalid credentials 
+INVALID_PASSWORD=Invalid password
+INVALID_EMAIL=Invalid email

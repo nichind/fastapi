@@ -16,51 +16,48 @@ slow_tasks = set()
 def track_usage(func):
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        start_time = time.time() * 1000
+        start_time_ms = time.time() * 1000
         process = psutil.Process()
-        start_cpu = process.cpu_percent()
-        start_ram = process.memory_percent()
+        initial_cpu = process.cpu_percent()
+        initial_ram = process.memory_percent()
 
         task = asyncio.create_task(func(*args, **kwargs))
 
         async def monitor_task():
-            last_warning = 0
+            last_warning_time_ms = 0
             while not task.done():
                 await asyncio.sleep(1)
                 if task.done() or task.cancelled():
                     break
-                elapsed_time = (time.time() * 1000) - start_time 
-                if elapsed_time > SLOW_TASKS_THRESHOLD_KILL * 1000:
+                elapsed_time_ms = time.time() * 1000 - start_time_ms
+                if elapsed_time_ms > SLOW_TASKS_THRESHOLD_KILL * 1000:
                     logger.error(
-                        f"Function: {func.__name__}, CPU usage: {process.cpu_percent() - start_cpu:.2f}%, RAM usage: {process.memory_percent() - start_ram:.2f}%, Time taken: {elapsed_time:.2f} ms (killed)"
+                        f"Function: {func.__name__}, CPU usage: {process.cpu_percent() - initial_cpu:.2f}%, RAM usage: {process.memory_percent() - initial_ram:.2f}%, Time taken: {elapsed_time_ms:.2f}ms ({'' if elapsed_time_ms // 1000 > 2 else f'{elapsed_time_ms // 1000:.2f}s'}) (killed)"
                     )
-                    try:
-                        task.cancel()
-                    except asyncio.CancelledError:
-                        pass
+                    task.cancel()
+                    break
                 if (
-                    elapsed_time > SLOW_TASKS_THRESHOLD * 1000  
-                    and (time.time() * 1000) - last_warning > 10000
+                    elapsed_time_ms > SLOW_TASKS_THRESHOLD * 1000
+                    and time.time() * 1000 - last_warning_time_ms > 10000
                 ):
                     slow_tasks.add(func.__name__)
-                    last_warning = time.time() * 1000
+                    last_warning_time_ms = time.time() * 1000
                     logger.warning(
-                        f"Function: {func.__name__}, CPU usage: {process.cpu_percent() - start_cpu:.2f}%, RAM usage: {process.memory_percent() - start_ram:.2f}%, Time taken: {elapsed_time:.2f} ms (still running)"
+                        f"Function: {func.__name__}, CPU usage: {process.cpu_percent() - initial_cpu:.2f}%, RAM usage: {process.memory_percent() - initial_ram:.2f}%, Time taken: {elapsed_time_ms:.2f}ms ({'' if elapsed_time_ms // 1000 > 2 else f'{elapsed_time_ms // 1000:.2f}s'}) (still running)"
                     )
 
-        monitor_task_coro = monitor_task()
-        asyncio.create_task(monitor_task_coro)
+        asyncio.create_task(monitor_task())
 
         result = await task
 
-        end_time = time.time() * 1000  # convert to milliseconds
-        end_cpu = process.cpu_percent()
-        end_ram = process.memory_percent()
+        end_time_ms = time.time() * 1000
+        final_cpu = process.cpu_percent()
+        final_ram = process.memory_percent()
 
-        time_taken = end_time - start_time
+        time_taken_ms = end_time_ms - start_time_ms
 
         logger.info(
-            f"Function: {func.__name__}, CPU usage: {(end_cpu - start_cpu) / psutil.cpu_count() * 100:.2f}%, RAM usage: {end_ram - start_ram:.2f}%, Time taken: {time_taken:.2f} ms"
+            f"Function: {func.__name__}, CPU usage: {(final_cpu - initial_cpu) / psutil.cpu_count() * 100:.2f}%, RAM usage: {final_ram - initial_ram:.2f}%, Time taken: {time_taken_ms:.2f}ms ({time_taken_ms // 1000:.2f}s)"
         )
 
         return result

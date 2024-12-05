@@ -53,7 +53,7 @@ class Translator:
                         .replace("\\t", "\t")
                     )
                     while translated.endswith("\n"):
-                        translated = translated[:-2]
+                        translated = translated[:-1]
                     return translated
         if language.upper() != "EN":
             return self.translate_string(key, "EN")
