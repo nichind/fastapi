@@ -53,20 +53,22 @@ class PerfomanceMeter:
     start = datetime.now()
     all = [0]
 
-    def report(self):
+    async def report(self):
         while True:
-            sleep(60 * 5)
+            await sleep(60 * 5)
             if len(self.all) > 10**6:
                 self.all = self.all[-(10**6) :]
             logger.info("Database delay report")
-            logger.info(f"Average time per action: {sum(self.all) / len(self.all)}s")
             logger.info(
-                f"Average time per action (last 1k): {sum(self.all[-1000:]) / len(self.all[-1000:])}s"
+                f"Average time per action: {sum(self.all) / len(self.all) / 1000:.2f}ms"
             )
             logger.info(
-                f"Average time per action (last 100): {sum(self.all[-100:]) / len(self.all[-100:])}s"
+                f"Average time per action (last 1k): {sum(self.all[-1000:]) / len(self.all[-1000:]) / 1000:.2f}ms"
             )
-            
+            logger.info(
+                f"Average time per action (last 100): {sum(self.all[-100:]) / len(self.all[-100:]) / 1000:.2f}ms"
+            )
+
 
 perfomance = PerfomanceMeter()
 
@@ -82,17 +84,21 @@ class BaseItem(Base):
     @classmethod
     async def add(cls, **kwargs) -> Self:
         start_at = datetime.now()
-        async with sessions[cls.__table_args__.get("comment", "main")].begin() as session:
+        async with sessions[
+            cls.__table_args__.get("comment", "main")
+        ].begin() as session:
             item = cls(**kwargs)
             session.add(item)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
-        return await cls.get(id=item.id)
+        return item
 
     @classmethod
     async def get(cls, **kwargs) -> Self | None:
         start_at = datetime.now()
-        async with sessions[cls.__table_args__.get("comment", "main")].begin() as session:
+        async with sessions[
+            cls.__table_args__.get("comment", "main")
+        ].begin() as session:
             item = (
                 (await session.execute(select(User).filter_by(**kwargs)))
                 .scalars()
@@ -102,59 +108,83 @@ class BaseItem(Base):
         return item
 
     @classmethod
-    async def update(cls, id: int = None, ignore_crypt: bool = False, ignore_blacklist: bool = False, **kwargs) -> Self | None:
+    async def get_chunk(cls, limit: int = 100, offset: int = 0) -> List[Self]:
+        start_at = datetime.now()
+        async with sessions[
+            cls.__table_args__.get("comment", "main")
+        ].begin() as session:
+            items = (
+                (await session.execute(select(cls).limit(limit).offset(offset)))
+                .scalars()
+                .all()
+            )
+        perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        return items
+
+    @classmethod
+    async def update(
+        cls,
+        id: int = None,
+        ignore_crypt: bool = False,
+        ignore_blacklist: bool = False,
+        **kwargs,
+    ) -> Self | None:
         start_at = datetime.now()
         if not id:
             id = cls.id if cls.id else None
         if not id:
             raise database_exc.NoID
-        async with sessions[cls.__table_args__.get("comment", "main")].begin() as session:
+        async with sessions[
+            cls.__table_args__.get("comment", "main")
+        ].begin() as session:
             cls = (
                 (await session.execute(select(cls).filter_by(id=id))).scalars().first()
             )
             for key, value in kwargs.items():
                 if not ignore_blacklist and await cls.is_value_blacklisted(key, value):
                     raise database_exc.Blacklisted
-                if key in getenv("CRYPT_VALUES", '').split(",") and not ignore_crypt:
+                if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
                     value = await cls._crypt(value)
                 setattr(cls, key, value)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
-        return await cls.get(id=id)
+        return cls
 
     @classmethod
     async def _crypt(cls, value: str, crypt_key: str = None) -> str:
         if not crypt_key:
             crypt_key = getenv("CRYPT_KEY", None)
         if not crypt_key:
-            raise database_exc.NoCryptKey("CRYPT_KEY env is not set and no crypt key was provided")
+            raise database_exc.NoCryptKey
         crypt = Fernet(crypt_key.encode("utf-8"))
         return crypt.encrypt(value.encode()).decode()
-    
+
     @classmethod
     async def _decrypt(cls, value: str, crypt_key: str = None) -> str:
         if not crypt_key:
             crypt_key = getenv("CRYPT_KEY", None)
         if not crypt_key:
-            raise database_exc.NoCryptKey("CRYPT_KEY env is not set and no crypt key was provided")
+            raise database_exc.NoCryptKey
         crypt = Fernet(crypt_key.encode("utf-8"))
         return crypt.decrypt(value.encode()).decode()
-    
+
     @classmethod
-    async def _compare(cls, decrypted_value: str, encrypted_value: str, crypt_key: str = None) -> bool:
+    async def _compare(
+        cls, decrypted_value: str, encrypted_value: str, crypt_key: str = None
+    ) -> bool:
         if not crypt_key:
             crypt_key = getenv("CRYPT_KEY", None)
         if not crypt_key:
-            raise Exception
+            raise database_exc.NoCryptKey
         crypt = Fernet(crypt_key.encode("utf-8"))
         return crypt.decrypt(encrypted_value.encode()).decode() == decrypted_value
-    
+
     @classmethod
     async def _generate_secret(cls, length: int = 32) -> str:
         secret = "".join(choice(ascii_letters + digits) for _ in range(length))
-        secret = secret[0:3] + '.' + secret[5:]
+        secret = secret[0:3] + "." + secret[5:]
         if len(secret) >= 32:
-            secret = secret[0:28] + '.' + secret[30:] 
+            secret = secret[0:28] + "." + secret[30:]
         return secret
 
     @classmethod
@@ -169,10 +199,10 @@ class BaseItem(Base):
                     return True
 
         return False
-    
+
     def __repr__(self):
-        return f"<{self.__class__.__name__} [{self.__table_args__.get('comment', 'main')}] {self.id}>"
-    
+        return f"<{self.__class__.__name__} {self.id}>"
+
 
 class ServerSetting(BaseItem):
     __tablename__ = "server_settings"
@@ -180,8 +210,8 @@ class ServerSetting(BaseItem):
 
     key = Column(String, unique=True)
     value = Column(String)
-    
-    
+
+
 class User(BaseItem):
     __tablename__ = "users"
     __table_args__ = {"comment": "main"}
@@ -201,7 +231,7 @@ async def create_tables():
             async with engine.begin() as conn:
                 for table in Base.metadata.sorted_tables:
                     if table.comment == name:
-                        await conn.run_sync(table.create, checkfirst=True)                     
+                        await conn.run_sync(table.create, checkfirst=True)
     except Exception as exc:
         print("Error while creating tables:", exc)
 

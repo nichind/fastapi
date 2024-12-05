@@ -1,4 +1,4 @@
-from fastapi import Request
+from fastapi import Request, Depends
 from fastapi.responses import (
     JSONResponse,
     RedirectResponse,
@@ -6,8 +6,9 @@ from fastapi.responses import (
     FileResponse,
 )
 from datetime import datetime
-from ..database import perfomance
+from ..database import *
 from ..other import track_usage
+from typing import Literal
 
 
 class Methods:
@@ -37,27 +38,20 @@ class Methods:
         @app.limit("12/minute")
         @track_usage
         async def database(request: Request) -> JSONResponse:
+            delays = {
+                "all_time": round(sum(perfomance.all) / len(perfomance.all) * 1000, 5),
+                "last_1": round(sum(perfomance.all[-1:]) / len(perfomance.all[-1:]) * 1000, 5),
+                "last_10": round(sum(perfomance.all[-10:]) / len(perfomance.all[-10:]) * 1000, 5),
+                "last_100": round(sum(perfomance.all[-100:]) / len(perfomance.all[-100:]) * 1000, 5),
+                "last_1000": round(sum(perfomance.all[-1000:]) / len(perfomance.all[-1000:]) * 1000, 5),
+                "last_10000": round(sum(perfomance.all[-10000:]) / len(perfomance.all[-10000:]) * 1000, 5),
+            }
+
             return JSONResponse(
                 {
-                    "status": (
-                        "ok"
-                        if sum(perfomance.all[-100:]) / len(perfomance.all[-100:])
-                        < 0.09
-                        else "slow"
-                    ),
+                    "status": "ok" if delays["last_100"] < 90 else "slow",
                     "total_actions": len(perfomance.all),
-                    "delays": {
-                        "all_time": sum(perfomance.all) / len(perfomance.all),
-                        "last_1": sum(perfomance.all[-1:]) / len(perfomance.all[-1:]),
-                        "last_10": sum(perfomance.all[-10:])
-                        / len(perfomance.all[-10:]),
-                        "last_100": sum(perfomance.all[-100:])
-                        / len(perfomance.all[-100:]),
-                        "last_1000": sum(perfomance.all[-1000:])
-                        / len(perfomance.all[-1000:]),
-                        "last_10000": sum(perfomance.all[-10000:])
-                        / len(perfomance.all[-10000:]),
-                    },
+                    "delays_ms": delays,
                 },
                 headers=app.no_cache_headers,
             )
@@ -70,9 +64,18 @@ class Methods:
         @app.get(self.path + "github", include_in_schema=False, tags=["default"])
         @track_usage
         async def github(request: Request) -> RedirectResponse:
-            return RedirectResponse("https://github.com/waomoe")
+            return RedirectResponse("https://github.com/nichind/fastapi")
 
         @app.get(self.path + "favicon.ico", include_in_schema=False)
         @app.limit("10/minute")
         async def favicon(request: Request):
             return FileResponse(app.root_dir + "/logo.png")
+
+        @app.get(self.path + "stress", dependencies=[Depends(app.checks.admin_check)])
+        @track_usage
+        async def stress(request: Request, count: int = 5000, data: Literal["users"] = "users") -> JSONResponse:
+            if data == "users":
+                for x in range(count):
+                    await User.add(username=f"user_{x}", email=f"user_{x}@example.com", password=f"user_{x}")
+            return JSONResponse({"status": "ok"}, headers=app.no_cache_headers)
+            
