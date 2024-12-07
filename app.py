@@ -23,9 +23,11 @@ import logging
 
 async def rechache_translations():
     while True:
-        app.logger.info("Chaching translations...")
+        app.logger.info("Chaching translations")
         app.translator.chache_translations()
-        app.logger.info("Re-cached translations")
+        app.logger.info(
+            f"Re-cached translations ({sum([len(x) for x in app.tlbook.values()])} lines in {len(app.tlbook)} lang)"
+        )
         await sleep(60 * 30)
 
 
@@ -145,7 +147,7 @@ create_db()
 
 app.setup_hook = create_task(setup_hook())
 app.logger.success(
-    f"Started backend v{app.current_version} in {int((datetime.now() - app.start_at).total_seconds() * 1000)} ms"
+    f"Started backend v{app.current_version} in {int((datetime.now() - app.start_at).total_seconds() * 1000)}ms"
 )
 app.setup_hook.add_done_callback(
     lambda x: app.logger.info(
