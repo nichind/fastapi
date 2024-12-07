@@ -1,4 +1,4 @@
-from fastapi import Request, Depends
+from fastapi import Request, Depends, Header
 from fastapi.responses import (
     JSONResponse,
     RedirectResponse,
@@ -8,7 +8,7 @@ from fastapi.responses import (
 from datetime import datetime
 from ..database import User, perfomance
 from ..other import track_usage
-from typing import Literal
+from typing import Literal, Annotated
 import time
 
 
@@ -20,7 +20,7 @@ class Methods:
         async def main_middleware(request: Request, call_next):
             start_time = time.perf_counter()
             languages = request.headers.get("accept-language", "en").split(",")
-            language = 'en'
+            language = "en"
             for lang in languages:
                 lang = lang.strip()
                 if lang in app.tlbook:
@@ -32,6 +32,11 @@ class Methods:
             response.headers["X-Process-Time"] = str(process_time)
             response.headers["X-Process-Time-MS"] = str(process_time * 1000)
             response.headers["X-Server-Time"] = str(datetime.now())
+            try:
+                user = await User.get(token=request.headers.get("X-Authorization"))
+                response.headers["X-Auth-As"] = f'{user.username}'
+            except Exception:
+                pass 
             return response
 
         @app.get(self.path, include_in_schema=False)
@@ -60,7 +65,7 @@ class Methods:
         @app.get(self.path + "database", tags=["default"])
         @app.limit("60/minute")
         @track_usage
-        async def database(request: Request) -> JSONResponse:
+        async def database(request: Request, x_authorization: Annotated[str, Header()] = None) -> JSONResponse:
             await User.get_chunk(limit=500)
             delays = {
                 "all_time": {

@@ -10,7 +10,6 @@ async def setup_hook(*args, **kwargs) -> None:
         if not user:
             user = await User.add(username="admin")
         await user.update(password="admin", token="dev", is_admin=True)
-        print(await user._compare("admin", user.password))
     except Exception as exc:
         print("Error while creating admin:", exc)
 
