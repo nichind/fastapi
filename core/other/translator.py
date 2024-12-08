@@ -51,6 +51,8 @@ class Translator:
                         line[line.index("=") + 1 :]
                         .replace("\\n", "\n")
                         .replace("\\t", "\t")
+                        .replace("\\\\", "\\")
+                        .replace("\\r", "\r")
                     )
                     while translated.endswith("\n"):
                         translated = translated[:-1]

@@ -83,6 +83,15 @@ class BaseItem(Base):
 
     @classmethod
     async def add(cls, **kwargs) -> Self:
+        """
+        Adds a new item to the database.
+
+        Args:
+            **kwargs: the keyword arguments to pass to the item's constructor
+
+        Returns:
+            The newly created item
+        """
         start_at = datetime.now()
         async with sessions[
             cls.__table_args__.get("comment", "main")
@@ -94,13 +103,22 @@ class BaseItem(Base):
         return item
 
     @classmethod
-    async def get(cls, **kwargs) -> Self | None:
+    async def get(cls, **filters) -> Self | None:
+        """
+        Gets an item from the database.
+
+        Args:
+            **filters: the keyword arguments to filter by
+
+        Returns:
+            The item if found, None otherwise
+        """
         start_at = datetime.now()
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
             item = (
-                (await session.execute(select(User).filter_by(**kwargs)))
+                (await session.execute(select(User).filter_by(**filters)))
                 .scalars()
                 .first()
             )
@@ -108,18 +126,48 @@ class BaseItem(Base):
         return item
 
     @classmethod
-    async def get_chunk(cls, limit: int = 100, offset: int = 0) -> List[Self]:
+    async def get_chunk(
+        cls, limit: int = 100, offset: int = 0, **filters
+    ) -> List[Self]:
+        """
+        Gets a chunk of items from the database.
+
+        Args:
+            limit (int, optional): the maximum number of items to return. Defaults to 100.
+            offset (int, optional): the offset to start from. Defaults to 0.
+            **filters: the keyword arguments to filter by
+
+        Returns:
+            A list of items
+        """
         start_at = datetime.now()
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
             items = (
-                (await session.execute(select(cls).limit(limit).offset(offset)))
+                (
+                    await session.execute(
+                        select(cls).filter_by(**filters).limit(limit).offset(offset)
+                    )
+                )
                 .scalars()
                 .all()
             )
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
         return items
+
+    @classmethod
+    async def get_all(cls, **filters) -> List[Self]:
+        """
+        Gets all items from the database.
+
+        Args:
+            **filters: the keyword arguments to filter by
+
+        Returns:
+            A list of all items
+        """
+        return await cls.get_chunk(limit=-1, **filters)
 
     @classmethod
     async def update(
@@ -129,6 +177,18 @@ class BaseItem(Base):
         ignore_blacklist: bool = False,
         **kwargs,
     ) -> Self | None:
+        """
+        Updates an item in the database.
+
+        Args:
+            id (int, optional): The id of the item to update. Defaults to None.
+            ignore_crypt (bool, optional): Whether to ignore encryption. Defaults to False.
+            ignore_blacklist (bool, optional): Whether to ignore blacklisting. Defaults to False.
+            **kwargs: The keyword arguments to update with
+
+        Returns:
+            The updated item if found, None otherwise
+        """
         start_at = datetime.now()
         if not id:
             id = cls.id if cls.id else None
@@ -141,17 +201,17 @@ class BaseItem(Base):
                 (await session.execute(select(cls).filter_by(id=id))).scalars().first()
             )
             for key, value in kwargs.items():
-                if not ignore_blacklist and await cls.is_value_blacklisted(key, value):
+                if not ignore_blacklist and cls._is_value_blacklisted(key, value):
                     raise database_exc.Blacklisted
                 if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
-                    value = await cls._crypt(value)
+                    value = cls._crypt(value)
                 setattr(cls, key, value)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
         return cls
 
     @classmethod
-    async def _crypt(cls, value: str, crypt_key: str = None) -> str:
+    def _crypt(cls, value: str, crypt_key: str = None) -> str:
         if not crypt_key:
             crypt_key = getenv("CRYPT_KEY", None)
         if not crypt_key:
@@ -160,7 +220,7 @@ class BaseItem(Base):
         return crypt.encrypt(value.encode()).decode()
 
     @classmethod
-    async def _decrypt(cls, value: str, crypt_key: str = None) -> str:
+    def _decrypt(cls, value: str, crypt_key: str = None) -> str:
         if not crypt_key:
             crypt_key = getenv("CRYPT_KEY", None)
         if not crypt_key:
@@ -169,7 +229,7 @@ class BaseItem(Base):
         return crypt.decrypt(value.encode()).decode()
 
     @classmethod
-    async def _compare(
+    def _compare(
         cls, decrypted_value: str, encrypted_value: str, crypt_key: str = None
     ) -> bool:
         if not crypt_key:
@@ -180,7 +240,7 @@ class BaseItem(Base):
         return crypt.decrypt(encrypted_value.encode()).decode() == decrypted_value
 
     @classmethod
-    async def _generate_secret(cls, length: int = 32) -> str:
+    def _generate_secret(cls, length: int = 32) -> str:
         secret = "".join(choice(ascii_letters + digits) for _ in range(length))
         secret = secret[0:3] + "." + secret[5:]
         if len(secret) >= 32:
@@ -188,7 +248,7 @@ class BaseItem(Base):
         return secret
 
     @classmethod
-    async def is_value_blacklisted(cls, key: str, value: str) -> bool:
+    def _is_value_blacklisted(cls, key: str, value: str) -> bool:
         blacklist_file = f"./core/database/blacklists/{key}.txt"
         if not os.path.exists(blacklist_file):
             return False

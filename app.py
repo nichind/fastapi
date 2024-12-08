@@ -21,6 +21,9 @@ from os import getenv
 import logging
 
 
+create_db()
+
+
 async def rechache_translations():
     while True:
         app.logger.info("Chaching translations")
@@ -142,8 +145,6 @@ for module in __all__:
         continue
     module.Methods(app)
     app.logger.info(f"Loaded {module.__name__} methods")
-
-create_db()
 
 app.setup_hook = create_task(setup_hook())
 app.logger.success(

@@ -33,10 +33,12 @@ class Methods:
             response.headers["X-Process-Time-MS"] = str(process_time * 1000)
             response.headers["X-Server-Time"] = str(datetime.now())
             try:
-                user = await User.get(token=request.headers.get("X-Authorization"))
-                response.headers["X-Auth-As"] = f'{user.username}'
+                user = await User.get(
+                    token=request.headers.get("X-Authorization", "1337")
+                )
+                response.headers["X-Auth-As"] = f"{user.username}"
             except Exception:
-                pass 
+                pass
             return response
 
         @app.get(self.path, include_in_schema=False)
@@ -65,7 +67,9 @@ class Methods:
         @app.get(self.path + "database", tags=["default"])
         @app.limit("60/minute")
         @track_usage
-        async def database(request: Request, x_authorization: Annotated[str, Header()] = None) -> JSONResponse:
+        async def database(
+            request: Request, x_authorization: Annotated[str, Header()] = None
+        ) -> JSONResponse:
             await User.get_chunk(limit=500)
             delays = {
                 "all_time": {

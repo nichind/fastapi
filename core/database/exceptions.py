@@ -17,4 +17,7 @@ class NotUnique(Exception): ...
 
 
 class NoCryptKey(Exception):
-    """CRYPT_KEY env is not set and no crypt key was provided"""
+    def __init__(self):
+        super().__init__(
+            "No crypt key found. Please set the CRYPT_KEY environment variable."
+        )

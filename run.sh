@@ -1,9 +1,9 @@
 # !/bin/bash
 
 host=localhost 
-port=8741
+port=51234
 if [ "$1" = "dev" ]; then
-port="54155 --reload"
+port="51234 --reload"
 fi
 
 SCRIPT=$(readlink -f "$0")
