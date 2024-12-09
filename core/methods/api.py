@@ -6,7 +6,7 @@ from fastapi.responses import (
     FileResponse,
 )
 from datetime import datetime
-from ..database import User, perfomance
+from ..database import User, perfomance, choice, ascii_letters, digits
 from ..other import track_usage
 from typing import Literal, Annotated
 import time
@@ -154,9 +154,12 @@ class Methods:
         ) -> JSONResponse:
             if data == "users":
                 for x in range(count):
-                    await User.add(
-                        username=f"user_{x}",
-                        email=f"user_{x}@example.com",
-                        password=f"user_{x}",
+                    user = await User.add(
+                        username=f"stress_{x}"
+                        + "".join(choice(ascii_letters) for _ in range(6)),
+                        email=f"stress_{x}"
+                        + "".join(choice(ascii_letters) for _ in range(6))
+                        + "@example.com",
+                        password="".join(choice(ascii_letters) for _ in range(12)),
                     )
             return JSONResponse({"status": "ok"}, headers=app.no_cache_headers)

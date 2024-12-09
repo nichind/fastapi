@@ -19,8 +19,6 @@ from datetime import datetime
 from typing import Self, List
 from uuid import uuid4
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from os import getenv
 from dotenv import load_dotenv
 from time import sleep
@@ -82,7 +80,9 @@ class BaseItem(Base):
     is_deleted = Column(Boolean)
 
     @classmethod
-    async def add(cls, **kwargs) -> Self:
+    async def add(
+        cls, ignore_crypt: bool = False, ignore_blacklist: bool = True, **kwargs
+    ) -> Self:
         """
         Adds a new item to the database.
 
@@ -97,6 +97,12 @@ class BaseItem(Base):
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
             item = cls(**kwargs)
+            for key, value in kwargs.items():
+                if not ignore_blacklist and cls._is_value_blacklisted(key, value):
+                    raise database_exc.Blacklisted(key, value)
+                if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
+                    value = cls._crypt(value)
+                setattr(item, key, value)
             session.add(item)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
@@ -202,7 +208,7 @@ class BaseItem(Base):
             )
             for key, value in kwargs.items():
                 if not ignore_blacklist and cls._is_value_blacklisted(key, value):
-                    raise database_exc.Blacklisted
+                    raise database_exc.Blacklisted(key, value)
                 if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
                     value = cls._crypt(value)
                 setattr(cls, key, value)
@@ -250,18 +256,34 @@ class BaseItem(Base):
     @classmethod
     def _is_value_blacklisted(cls, key: str, value: str) -> bool:
         blacklist_file = f"./core/database/blacklists/{key}.txt"
-        if not os.path.exists(blacklist_file):
-            return False
-
-        with open(blacklist_file) as f:
-            for line in f:
-                if line.strip() == str(value):
-                    return True
+        if os.path.exists(blacklist_file):
+            with open(blacklist_file) as f:
+                for line in f:
+                    if line.strip() == str(value):
+                        return True
 
         return False
 
-    def __repr__(self):
-        return f"<{self.__class__.__name__} {self.id}>"
+    def decrypted(self) -> Self:
+        """
+        Returns a new instance of the item with all values decrypted.
+
+        This method takes all values that are in the CRYPT_VALUES environment variable
+        and decrypts them, returning a new instance of the item with the decrypted values.
+
+        Returns:
+            Self: A new instance of the item with decrypted values.
+        """
+        for key, value in self.__dict__.items():
+            if key in getenv("CRYPT_VALUES", "").split(","):
+                self.__dict__[key] = self._decrypt(value)
+        return self
+
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__}:{self.id}>"
+
+    def __int__(self) -> int:
+        return self.id
 
 
 class ServerSetting(BaseItem):

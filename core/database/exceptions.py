@@ -1,7 +1,15 @@
-class NoID(Exception): ...
+class NoID(Exception):
+    def __init__(self):
+        super().__init__("No ID kwarg found and item has no id attribute.")
 
 
-class Blacklisted(Exception): ...
+class Blacklisted(Exception):
+    def __init__(self, key: str, value: str):
+        super().__init__(
+            f"Value {value} for {key} is blacklisted.",
+            "Ignore by setting ignore_blacklist=True",
+            sep="\n",
+        )
 
 
 class Duplicate(Exception): ...
@@ -17,7 +25,7 @@ class NotUnique(Exception): ...
 
 
 class NoCryptKey(Exception):
-    def __init__(self):
+    def __init__(self, key: str = "CRYPT_KEY"):
         super().__init__(
-            "No crypt key found. Please set the CRYPT_KEY environment variable."
+            f"No crypt key found. Please set the {key} environment variable."
         )
