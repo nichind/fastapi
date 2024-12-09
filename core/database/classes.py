@@ -69,6 +69,9 @@ perfomance = PerfomanceMeter()
 
 
 class BaseItem(Base):
+    """
+    Base class for all database items
+    """
     __abstract__ = True
 
     class Audit: ...
@@ -347,6 +350,25 @@ class AuditLog(BaseItem):
     key = Column(String(64))
     old_value = Column(String(256))
     new_value = Column(String(256))
+
+    @classmethod
+    async def add(cls, **kwargs):
+        await super().add(**kwargs)
+        await cls._delete_old_audits(kwargs["key"], kwargs["origin_table"], kwargs["origin_id"])
+
+    @classmethod
+    async def _delete_old_audits(cls, key, origin_table, origin_id):
+        async with sessions[cls.__table_args__['comment']].begin() as session:
+            result = await session.execute(
+                select(cls)
+                .filter_by(key=key, origin_table=origin_table, origin_id=origin_id)
+                .order_by(cls.id.desc())
+            )
+            audits = result.scalars().all()
+            if len(audits) > int(getenv("MAX_AUDITS_PER_ITEM", 6)):
+                for audit in audits[int(getenv("MAX_AUDITS_PER_ITEM", 6)):]:
+                    await session.delete(audit)
+            await session.commit()
 
 
 async def create_tables():

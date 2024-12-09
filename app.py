@@ -94,6 +94,7 @@ app.tl = app.translator.tl
 app.tlbook = app.translator.tlbook
 app.title = app.tl("title")
 app.description = app.tl("description")
+app.ipratelimit = {}
 
 Thread(target=run, args=(rechache_translations(),)).start()
 

@@ -1,12 +1,13 @@
-from fastapi import Request, Depends, Header
+from fastapi import Request, Depends, Header, HTTPException
 from fastapi.responses import (
     JSONResponse,
     RedirectResponse,
     PlainTextResponse,
     FileResponse,
+    Response
 )
 from datetime import datetime
-from ..database import User, perfomance, choice, ascii_letters, digits
+from ..database import User, perfomance, choice, ascii_letters, digits, getenv
 from ..other import track_usage
 from typing import Literal, Annotated
 import time
@@ -32,6 +33,18 @@ class Methods:
             response.headers["X-Process-Time"] = str(process_time)
             response.headers["X-Process-Time-MS"] = str(process_time * 1000)
             response.headers["X-Server-Time"] = str(datetime.now())
+            if request.client.host not in app.ipratelimit:
+                app.ipratelimit[request.client.host] = []
+            if len(app.ipratelimit[request.client.host]) <= int(getenv("IP_RATE_LIMIT_PER_MINUTE", 60)):
+                app.ipratelimit[request.client.host] += [time.time()]
+            for i in app.ipratelimit[request.client.host]:
+                if time.time() - i > 60:
+                    app.ipratelimit[request.client.host].remove(i)
+            if len(app.ipratelimit[request.client.host]) > int(getenv("IP_RATE_LIMIT_PER_MINUTE", 60)):
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": request.state.tl("IP_RATE_LIMIT_EXCEEDED")},
+                )          
             try:
                 user = await User.get(
                     token=request.headers.get("X-Authorization", "1337")
@@ -154,7 +167,7 @@ class Methods:
         ) -> JSONResponse:
             if data == "users":
                 for x in range(count):
-                    user = await User.add(
+                    await User.add(
                         username=f"stress_{x}"
                         + "".join(choice(ascii_letters) for _ in range(6)),
                         email=f"stress_{x}"
