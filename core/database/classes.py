@@ -207,10 +207,13 @@ class BaseItem(Base):
                 (await session.execute(select(cls).filter_by(id=id))).scalars().first()
             )
             for key, value in kwargs.items():
+                if getattr(cls, key) == value:
+                    continue
                 if not ignore_blacklist and cls._is_value_blacklisted(key, value):
                     raise database_exc.Blacklisted(key, value)
                 if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
                     value = cls._crypt(value)
+                await AuditLog.add(old_value=getattr(cls, key), new_value=value, key=key, origin_id=cls.id, origin_table=cls.__tablename__)
                 setattr(cls, key, value)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
@@ -303,6 +306,19 @@ class User(BaseItem):
     password = Column(String(256))
     token = Column(String(256), unique=True)
     is_admin = Column(Boolean)
+    
+
+class AuditLog(BaseItem):
+    __tablename__ = "audit_logs"
+    __table_args__ = {"comment": "main"}    
+
+    updated_at = None
+    is_deleted = None
+    origin_table = Column(String(48), nullable=False)
+    origin_id = Column(Integer, nullable=False)
+    key = Column(String(64))
+    old_value = Column(String(256))
+    new_value = Column(String(256))
 
 
 async def create_tables():

@@ -1,13 +1,13 @@
-from ..database import User
+from ..database import User, create_db
 
 
 async def setup_hook(*args, **kwargs) -> None:
+    create_db()
     try:
-        user = await User.get(username="waomoe")
+        user = await User.get(username="dev")
         if not user:
-            user = await User.add(username="waomoe", password=User._generate_secret(64))
-        await user.update(is_admin=True, token="dev")
-        print(user.decrypted().password)
+            user = await User.add(username="dev")
+        await user.update(is_admin=True, token="dev", password=User._generate_secret(64))
     except Exception as exc:
         print("Error while creating admin:", exc)
 

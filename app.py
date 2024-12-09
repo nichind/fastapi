@@ -21,9 +21,6 @@ from os import getenv
 import logging
 
 
-create_db()
-
-
 async def rechache_translations():
     while True:
         app.logger.info("Chaching translations")
