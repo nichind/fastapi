@@ -1,4 +1,3 @@
-import base64
 import os
 from sqlalchemy import (
     Column,
@@ -9,7 +8,6 @@ from sqlalchemy import (
     DateTime,
     func,
     Identity,
-    insert,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -17,7 +15,6 @@ from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from datetime import datetime
 from typing import Self, List
-from uuid import uuid4
 from cryptography.fernet import Fernet
 from os import getenv
 from dotenv import load_dotenv
@@ -74,6 +71,9 @@ perfomance = PerfomanceMeter()
 class BaseItem(Base):
     __abstract__ = True
 
+    class Audit: ...
+
+    audit = Audit()
     id = Column(Integer, Identity(start=1, increment=1), primary_key=True, unique=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
@@ -213,7 +213,13 @@ class BaseItem(Base):
                     raise database_exc.Blacklisted(key, value)
                 if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
                     value = cls._crypt(value)
-                await AuditLog.add(old_value=getattr(cls, key), new_value=value, key=key, origin_id=cls.id, origin_table=cls.__tablename__)
+                await AuditLog.add(
+                    old_value=getattr(cls, key),
+                    new_value=value,
+                    key=key,
+                    origin_id=cls.id,
+                    origin_table=cls.__tablename__,
+                )
                 setattr(cls, key, value)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
@@ -282,8 +288,30 @@ class BaseItem(Base):
                 self.__dict__[key] = self._decrypt(value)
         return self
 
+    async def get_audit(self) -> dict[str, List["AuditLog"]]:
+        """
+        Gets all audit logs for the current item.
+
+        This method returns a dictionary with all keys being the column names of the item
+        and the values being lists of AuditLog objects.
+
+        Returns:
+            dict[str, List["AuditLog"]]: A dictionary with all audit logs for the item.
+        """
+        for key in self.__dict__.keys():
+            if key.startswith("_"):
+                continue
+            setattr(
+                self.audit,
+                key,
+                await AuditLog.get_all(
+                    origin_table=self.__tablename__, origin_id=self.id, key=key
+                ),
+            )
+        return self.audit
+
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__}:{self.id}>"
+        return f"<{self.__class__.__name__} {self.id}>"
 
     def __int__(self) -> int:
         return self.id
@@ -306,11 +334,11 @@ class User(BaseItem):
     password = Column(String(256))
     token = Column(String(256), unique=True)
     is_admin = Column(Boolean)
-    
+
 
 class AuditLog(BaseItem):
     __tablename__ = "audit_logs"
-    __table_args__ = {"comment": "main"}    
+    __table_args__ = {"comment": "main"}
 
     updated_at = None
     is_deleted = None
