@@ -16,6 +16,7 @@ async def setup_hook(app, *args, **kwargs) -> None:
         if len(await user.get_sessions()) == 0:
             await user.create_session()
             app.debug("Created admin session")
+        app.debug(f"Admin sessions: {len(await user.get_sessions())}")
     except Exception as exc:
         app.debug("Error while creating admin:", exc)
 

@@ -219,7 +219,6 @@ class BaseItem(Base):
             id = cls.id
         if not id:
             raise database_exc.NoID
-        print('update', id)
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
@@ -227,28 +226,24 @@ class BaseItem(Base):
                 (await session.execute(select(cls).filter_by(id=id))).scalars().first()
             )
             for key, value in kwargs.items():
-                try:
-                    if getattr(cls, key) == value:
-                        continue
-                    if not ignore_blacklist and cls._is_value_blacklisted(key, value):
-                        raise database_exc.Blacklisted(key, value)
-                    if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
-                        value = cls._crypt(value)
-                    old_value = getattr(cls, key)
-                    if not isinstance(old_value, (int, float, str, bool, type(None))):
-                        old_value = str(old_value)
-                    await AuditLog.add(
-                        old_value=old_value,
-                        new_value=value if isinstance(value, (int, float, str, bool, type(None))) else str(value),
-                        key=key,
-                        origin_id=cls.id,
-                        origin_table=cls.__tablename__,
-                    )
-                    setattr(cls, key, value)
-                except Exception as exc:
-                    print(exc)
+                if getattr(cls, key) == value:
+                    continue
+                if not ignore_blacklist and cls._is_value_blacklisted(key, value):
+                    raise database_exc.Blacklisted(key, value)
+                if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
+                    value = cls._crypt(value)
+                old_value = getattr(cls, key)
+                if not isinstance(old_value, (int, float, str, bool, type(None))):
+                    old_value = str(old_value)
+                await AuditLog.add(
+                    old_value=old_value,
+                    new_value=value if isinstance(value, (int, float, str, bool, type(None))) else str(value),
+                    key=key,
+                    origin_id=cls.id,
+                    origin_table=cls.__tablename__,
+                )
+                setattr(cls, key, value)
             await session.commit()
-            print(cls)
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
         return cls
 
