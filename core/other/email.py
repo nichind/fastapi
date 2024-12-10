@@ -23,6 +23,8 @@ class Email:
     ) -> None:
         if message_content in self.presets.keys():
             message_content = str(self.presets[message_content]).format(**format)
+        elif self.app.tl(message_content) != message_content:
+            message_content = (self.app.tl(message_content)).format(**format)
         self.app.debug(
             f'Sending email with subject "{subject}" to {to}; message: {message_content[:50]}...'
         )

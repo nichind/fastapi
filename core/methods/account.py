@@ -65,7 +65,7 @@ class Methods:
                 errors.append("Password must contain at least one number")
 
             for user in await User.get_all(reg_ip=request.state.ip):
-                if user.created_at.timestamp() + 60 * 60 > datetime.timestamp():
+                if user.created_at.timestamp() + 60 * 60 > datetime.now().timestamp():
                     errors.append("You have already registered recently, please wait")
 
             if len(errors) == 0:

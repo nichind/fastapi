@@ -10,7 +10,7 @@ from sqlalchemy import (
     Identity,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, reconstructor
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from datetime import datetime
@@ -72,7 +72,6 @@ class BaseItem(Base):
     """
     Base class for all database items
     """
-
     __abstract__ = True
 
     class Audit: ...
@@ -93,6 +92,11 @@ class BaseItem(Base):
         DateTime(timezone=True), onupdate=func.now(), info={"safe": True}
     )
     is_deleted = Column(Boolean)
+
+    @reconstructor
+    def init_on_load(self) -> None:
+        self.update = lambda **kwargs: self.__class__.update(id=self.id, **{k: v for k, v in kwargs.items() if k != "id"})
+        self.delete = lambda: self.__class__.delete(id=self.id)
 
     @classmethod
     async def add(
@@ -211,10 +215,11 @@ class BaseItem(Base):
             The updated item if found, None otherwise
         """
         start_at = datetime.now()
-        if not id:
-            id = cls.id if cls.id else None
+        if not id and hasattr(cls, "id"):
+            id = cls.id
         if not id:
             raise database_exc.NoID
+        print('update', id)
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
@@ -222,21 +227,28 @@ class BaseItem(Base):
                 (await session.execute(select(cls).filter_by(id=id))).scalars().first()
             )
             for key, value in kwargs.items():
-                if getattr(cls, key) == value:
-                    continue
-                if not ignore_blacklist and cls._is_value_blacklisted(key, value):
-                    raise database_exc.Blacklisted(key, value)
-                if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
-                    value = cls._crypt(value)
-                await AuditLog.add(
-                    old_value=getattr(cls, key),
-                    new_value=value,
-                    key=key,
-                    origin_id=cls.id,
-                    origin_table=cls.__tablename__,
-                )
-                setattr(cls, key, value)
+                try:
+                    if getattr(cls, key) == value:
+                        continue
+                    if not ignore_blacklist and cls._is_value_blacklisted(key, value):
+                        raise database_exc.Blacklisted(key, value)
+                    if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
+                        value = cls._crypt(value)
+                    old_value = getattr(cls, key)
+                    if not isinstance(old_value, (int, float, str, bool, type(None))):
+                        old_value = str(old_value)
+                    await AuditLog.add(
+                        old_value=old_value,
+                        new_value=value if isinstance(value, (int, float, str, bool, type(None))) else str(value),
+                        key=key,
+                        origin_id=cls.id,
+                        origin_table=cls.__tablename__,
+                    )
+                    setattr(cls, key, value)
+                except Exception as exc:
+                    print(exc)
             await session.commit()
+            print(cls)
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
         return cls
 
@@ -305,6 +317,34 @@ class BaseItem(Base):
             items = items[offset : (offset + limit) if limit != -1 else len(items)]
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
         return items
+
+    @classmethod
+    async def delete(cls, id: int = None, **filters):
+        """
+        Deletes an item from the database.
+
+        Args:
+            id (int, optional): The id of the item to delete. Defaults to None.
+            **filters: Additional filters to apply to the deletion.
+
+        Returns:
+            The deleted item if found, None otherwise
+        """
+        start_at = datetime.now()
+        if not id:
+            id = cls.id if cls.id else None
+        if not id:
+            raise database_exc.NoID
+        async with sessions[
+            cls.__table_args__.get("comment", "main")
+        ].begin() as session:
+            cls = (
+                (await session.execute(select(cls).filter_by(id=id))).scalars().first()
+            )
+            await session.delete(cls)
+            await session.commit()
+        perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        return cls
 
     @staticmethod
     def similarity(a: str, b: str) -> float:
@@ -448,12 +488,66 @@ class User(BaseItem):
     )
     email = Column(String(128), unique=True)
     password = Column(String(256))
-    token = Column(String(256), unique=True)
-    last_ip = Column(String(32))
-    reg_ip = Column(String(32))
     reg_type = Column(String(32))
     email_confirm_code = Column(String(64))
-    is_admin = Column(Boolean)
+    groups = Column(JSON)
+    
+    @reconstructor
+    def init_on_load(self) -> None:
+        super().init_on_load()
+        self.get_sessions = lambda: self.__class__.get_sessions(id=self.id)
+        self.create_session = lambda **kwargs: self.__class__.create_session(cls=self, id=self.id, **kwargs)
+
+    async def create_session(cls, id: int = None, **kwargs) -> "Session":
+        start_at = datetime.now()
+        if not id and hasattr(cls, "id"):
+            id = cls.id
+        if not id:
+            raise database_exc.NoID
+        async with sessions[
+            cls.__table_args__.get("comment", "main")
+        ].begin() as session:
+            _ = Session(
+                    user_id=id,
+                    token=cls._generate_secret(64),
+                    **kwargs
+            )
+            session.add(_)
+            await session.commit()
+        perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        return _
+
+    @classmethod
+    async def get_sessions(cls, id: int = None) -> List["Session"]:
+        start_at = datetime.now()
+        if not id and hasattr(cls, "id"):
+            id = cls.id
+        if not id:
+            raise database_exc.NoID
+        async with sessions[
+            cls.__table_args__.get("comment", "main")
+        ].begin() as session:
+            _ = (
+                (await session.execute(select(Session).filter_by(user_id=id)))
+                .scalars()
+                .all()
+            )
+        perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        return _
+
+class Session(BaseItem):
+    __tablename__ = "sessions"
+    __table_args__ = {"comment": "main"}
+
+    user_id = Column(Integer, nullable=False)
+    token = Column(String(256), nullable=False)
+    ip = Column(String(32))
+    user_agent = Column(String(256))
+    last_used = Column(DateTime(timezone=True))
+    device = Column(String(32))
+    country = Column(String(32))
+    region = Column(String(32))
+    city = Column(String(32))
 
 
 class AuditLog(BaseItem):
