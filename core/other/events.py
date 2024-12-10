@@ -1,8 +1,8 @@
-from ..database import User, create_db
+from ..database import User, create_tables
 
 
 async def setup_hook(*args, **kwargs) -> None:
-    create_db()
+    await create_tables()
     try:
         user = await User.get(username="dev")
         if not user:
@@ -10,7 +10,6 @@ async def setup_hook(*args, **kwargs) -> None:
         await user.update(
             is_admin=True, token="dev", password=User._generate_secret(64)
         )
-        print((await user.get_audit()).__dict__)
     except Exception as exc:
         print("Error while creating admin:", exc)
 

@@ -61,7 +61,7 @@ def format_record(record: dict) -> str:
 
 
 load_dotenv()
-version = "2024.12.1"
+version = getenv("VERSION", "2024.12.1")
 tags_metadata = [
     {
         "name": "default",
@@ -149,6 +149,6 @@ app.logger.success(
 )
 app.setup_hook.add_done_callback(
     lambda x: app.logger.info(
-        f"\n\n\t{app.title} Backend v{app.current_version}\n\tCommit #{app.commit}\n\tAPI URL: {app.api_url}\n\tFrontend URL: {app.url}\n\tModules loaded: {len(__all__)}\n"
+        f"\n\n\t{app.title} v{app.current_version}\n\tCommit #{app.commit}\n\tModules loaded: {len(__all__)}\n"
     )
 )
