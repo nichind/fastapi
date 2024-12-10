@@ -1,6 +1,6 @@
 from fastapi import HTTPException, Header, Request
 from typing import Annotated
-from ..database import User
+from ..database import User, Session
 
 
 class Checks:
@@ -27,7 +27,7 @@ class Checks:
             raise HTTPException(
                 status_code=401, detail=request.state.tl("NO_AUTH_HEADER")
             )
-        user = await User.get(token=x_authorization)
+        user = await Session.get_user(token=x_authorization)
         if not user:
             raise HTTPException(
                 status_code=401, detail=request.state.tl("INVALID_TOKEN")
@@ -49,7 +49,7 @@ class Checks:
         Returns:
             User: The user object if the user is an administrator.
         """
-        user = await User.get(token=x_authorization)
+        user = await Session.get_user(token=x_authorization)
         if not user:
             raise HTTPException(
                 status_code=401, detail=request.state.tl("INVALID_TOKEN")

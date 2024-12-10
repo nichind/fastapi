@@ -143,7 +143,7 @@ class BaseItem(Base):
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
             item = (
-                (await session.execute(select(User).filter_by(**filters)))
+                (await session.execute(select(cls).filter_by(**filters)))
                 .scalars()
                 .first()
             )
@@ -544,6 +544,12 @@ class Session(BaseItem):
     region = Column(String(32))
     city = Column(String(32))
 
+    @classmethod
+    async def get_user(cls, token: str) -> "User":
+        session = await Session.get(token=token)
+        if not session or session.is_deleted:
+            return None
+        return await User.get(id=session.user_id)
 
 class AuditLog(BaseItem):
     __tablename__ = "audit_logs"
