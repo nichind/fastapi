@@ -1,4 +1,4 @@
-from ..database import User, create_tables
+from ..database import User, create_tables, AuditLog
 
 
 async def setup_hook(*args, **kwargs) -> None:
@@ -10,6 +10,7 @@ async def setup_hook(*args, **kwargs) -> None:
         await user.update(
             is_admin=True, token="dev", password=User._generate_secret(64)
         )
+        print(await AuditLog.search())
     except Exception as exc:
         print("Error while creating admin:", exc)
 

@@ -4,7 +4,7 @@ from fastapi.responses import (
     RedirectResponse,
     PlainTextResponse,
     FileResponse,
-    Response
+    Response,
 )
 from datetime import datetime
 from ..database import User, perfomance, choice, ascii_letters, digits, getenv
@@ -35,16 +35,20 @@ class Methods:
             response.headers["X-Server-Time"] = str(datetime.now())
             if request.client.host not in app.ipratelimit:
                 app.ipratelimit[request.client.host] = []
-            if len(app.ipratelimit[request.client.host]) <= int(getenv("IP_RATE_LIMIT_PER_MINUTE", 60)):
+            if len(app.ipratelimit[request.client.host]) <= int(
+                getenv("IP_RATE_LIMIT_PER_MINUTE", 60)
+            ):
                 app.ipratelimit[request.client.host] += [time.time()]
             for i in app.ipratelimit[request.client.host]:
                 if time.time() - i > 60:
                     app.ipratelimit[request.client.host].remove(i)
-            if len(app.ipratelimit[request.client.host]) > int(getenv("IP_RATE_LIMIT_PER_MINUTE", 60)):
+            if len(app.ipratelimit[request.client.host]) > int(
+                getenv("IP_RATE_LIMIT_PER_MINUTE", 60)
+            ):
                 return JSONResponse(
                     status_code=429,
                     content={"detail": request.state.tl("IP_RATE_LIMIT_EXCEEDED")},
-                )          
+                )
             try:
                 user = await User.get(
                     token=request.headers.get("X-Authorization", "1337")

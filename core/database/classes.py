@@ -72,14 +72,16 @@ class BaseItem(Base):
     """
     Base class for all database items
     """
+
     __abstract__ = True
 
     class Audit: ...
 
     audit = Audit()
-    id = Column(Integer, Identity(start=1, increment=1), primary_key=True, unique=True)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
+        
+    id = Column(Integer, Identity(start=1, increment=1), primary_key=True, unique=True, info={"searchable": True, "safe": True})
+    created_at = Column(DateTime(timezone=True), default=func.now(), info={"safe": True})
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), info={"safe": True})
     is_deleted = Column(Boolean)
 
     @classmethod
@@ -229,6 +231,56 @@ class BaseItem(Base):
         return cls
 
     @classmethod
+    async def search(
+        cls, query: str, limit: int = -1, offset: int = 0, safe: bool = True, search_all: bool = False, **filters
+    ) -> List[Self]:
+        """
+        Searches for items in the database that match the given query.
+
+        Args:
+            query (str): The search query string.
+            limit (int, optional): The maximum number of items to return. Defaults to 100.
+            offset (int, optional): The offset to start the search from. Defaults to 0.
+            safe (bool, optional): Whether to restrict search to safe fields. Defaults to True.
+            search_all (bool, optional): Whether to search all fields regardless of their searchability. Defaults to False.
+            **filters: Additional filters to apply to the search.
+
+        Returns:
+            List[Self]: A list of items that match the search criteria.
+        """
+        start_at = datetime.now()
+        async with sessions[
+            cls.__table_args__.get("comment", "main")
+        ].begin() as session:
+            keys = []
+            for key in cls.__dict__.keys():
+                if key.startswith("_") or not cls.__dict__[key]:
+                    continue
+                data = cls.__dict__[key]
+                info = {}
+                if "info" in data.__dict__.keys():
+                    info = data.__dict__["info"]
+                if not info.get("searchable", False) and not search_all:
+                    continue
+                elif not info.get("safe", False) and safe:
+                    continue
+                keys += [key]
+            items = []
+            for key in keys:
+                items.extend(
+                    (
+                        await session.execute(
+                            select(cls).where(
+                                getattr(cls, key).ilike(f"%{query}%")
+                            ).filter_by(**filters)
+                        )
+                    ).scalars().all()
+                )
+            items = items[offset : (offset + limit) if limit != -1 else len(items)]
+        perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        return items
+            
+    @classmethod
     def _crypt(cls, value: str, crypt_key: str = None) -> str:
         if not crypt_key:
             crypt_key = getenv("CRYPT_KEY", None)
@@ -332,7 +384,7 @@ class User(BaseItem):
     __tablename__ = "users"
     __table_args__ = {"comment": "main"}
 
-    username = Column(String(48), unique=True)
+    username = Column(String(48), unique=True, nullable=False, info={"searchable": True, "safe": True})
     email = Column(String(128), unique=True)
     password = Column(String(256))
     token = Column(String(256), unique=True)
@@ -346,19 +398,21 @@ class AuditLog(BaseItem):
     updated_at = None
     is_deleted = None
     origin_table = Column(String(48), nullable=False)
-    origin_id = Column(Integer, nullable=False)
-    key = Column(String(64))
-    old_value = Column(String(256))
-    new_value = Column(String(256))
+    origin_id = Column(Integer, nullable=False, info={"searchable": True})
+    key = Column(String(64), nullable=False, info={"searchable": True})
+    old_value = Column(String(256), info={"searchable": True})
+    new_value = Column(String(256), info={"searchable": True})
 
     @classmethod
     async def add(cls, **kwargs):
         await super().add(**kwargs)
-        await cls._delete_old_audits(kwargs["key"], kwargs["origin_table"], kwargs["origin_id"])
+        await cls._delete_old_audits(
+            kwargs["key"], kwargs["origin_table"], kwargs["origin_id"]
+        )
 
     @classmethod
     async def _delete_old_audits(cls, key, origin_table, origin_id):
-        async with sessions[cls.__table_args__['comment']].begin() as session:
+        async with sessions[cls.__table_args__["comment"]].begin() as session:
             result = await session.execute(
                 select(cls)
                 .filter_by(key=key, origin_table=origin_table, origin_id=origin_id)
@@ -366,10 +420,13 @@ class AuditLog(BaseItem):
             )
             audits = result.scalars().all()
             if len(audits) > int(getenv("MAX_AUDITS_PER_ITEM", 6)):
-                for audit in audits[int(getenv("MAX_AUDITS_PER_ITEM", 6)):]:
+                for audit in audits[int(getenv("MAX_AUDITS_PER_ITEM", 6)) :]:
                     await session.delete(audit)
             await session.commit()
 
+    @classmethod
+    async def search(cls, query: str, limit: int = -1, offset: int = 0, safe: bool = True, search_all: bool = False, **filters):
+        return await super().search(query, limit, offset, False, search_all, **filters)
 
 async def create_tables():
     try:
