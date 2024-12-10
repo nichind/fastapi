@@ -7,7 +7,7 @@ from fastapi.responses import (
     Response,
 )
 from datetime import datetime
-from ..database import User, perfomance, choice, ascii_letters, getenv
+from ..database import User, perfomance, choice, ascii_letters, getenv, load_dotenv
 from ..other import track_usage
 from typing import Literal, Annotated
 import time
@@ -28,34 +28,29 @@ class Methods:
                     language = lang
                     break
             setattr(request.state, "tl", lambda text: app.tl(text, language))
-            response = await call_next(request)
-            process_time = time.perf_counter() - start_time
-            response.headers["X-Process-Time"] = str(process_time)
-            response.headers["X-Process-Time-MS"] = str(process_time * 1000)
-            response.headers["X-Server-Time"] = str(datetime.now())
-            if request.client.host not in app.ipratelimit:
-                app.ipratelimit[request.client.host] = []
-            if len(app.ipratelimit[request.client.host]) <= int(
-                getenv("IP_RATE_LIMIT_PER_MINUTE", 60)
-            ):
-                app.ipratelimit[request.client.host] += [time.time()]
-            for i in app.ipratelimit[request.client.host]:
+            ip = request.headers.get("cf-connecting-ip", request.client.host)
+            setattr(request.state, "ip", ip)
+            if ip not in app.ipratelimit:
+                app.ipratelimit[ip] = []
+            load_dotenv()
+            if len(app.ipratelimit[ip]) <= int(getenv("IP_RATE_LIMIT_PER_MINUTE", 60)):
+                app.ipratelimit[ip] += [time.time()]
+            for i in app.ipratelimit[ip]:
                 if time.time() - i > 60:
-                    app.ipratelimit[request.client.host].remove(i)
-            if len(app.ipratelimit[request.client.host]) > int(
-                getenv("IP_RATE_LIMIT_PER_MINUTE", 60)
-            ):
+                    app.ipratelimit[ip].remove(i)
+            user = await User.get(token=request.headers.get("X-Authorization", "1337"))
+            if len(app.ipratelimit[ip]) > int(getenv("IP_RATE_LIMIT_PER_MINUTE", 60)):
                 return JSONResponse(
                     status_code=429,
                     content={"detail": request.state.tl("IP_RATE_LIMIT_EXCEEDED")},
                 )
-            try:
-                user = await User.get(
-                    token=request.headers.get("X-Authorization", "1337")
-                )
-                response.headers["X-Auth-As"] = f"{user.username}"
-            except Exception:
-                pass
+            response = await call_next(request)
+            response.headers["X-Auth-As"] = f"{user.username}" if user else str(None)
+            response.headers["X-Requests-Last-Minute"] = str(len(app.ipratelimit[ip]))
+            process_time = time.perf_counter() - start_time
+            response.headers["X-Process-Time"] = str(process_time)
+            response.headers["X-Process-Time-MS"] = str(process_time * 1000)
+            response.headers["X-Server-Time"] = str(datetime.now())
             return response
 
         @app.get(self.path, include_in_schema=False)

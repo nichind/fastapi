@@ -449,6 +449,10 @@ class User(BaseItem):
     email = Column(String(128), unique=True)
     password = Column(String(256))
     token = Column(String(256), unique=True)
+    last_ip = Column(String(32))
+    reg_ip = Column(String(32))
+    reg_type = Column(String(32))
+    email_confirm_code = Column(String(64))
     is_admin = Column(Boolean)
 
 

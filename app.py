@@ -27,7 +27,7 @@ async def rechache_translations():
         app.logger.info(
             f"Re-cached translations ({sum([len(x) for x in app.tlbook.values()])} lines in {len(app.tlbook)} lang)"
         )
-        await sleep(60 * 30)
+        await sleep(int(getenv("TRANSLATE_RECACHE_INTERVAL", 3600)))
 
 
 class InterceptHandler(logging.Handler):
@@ -89,9 +89,11 @@ app.url = getenv("FRONTEND_URL", "")
 app.api_url = getenv("BACKEND_URL", "")
 app.root = "/"
 app.translator = Translator()
-app.email = Email()
-app.email.from_addr = getenv("EMAIL_FROM", "")
+app.email = Email(getenv("EMAIL_FROM", "mail@" + app.url), app)
 app.logger = logger
+if not bool(getenv("DEBUG", False)):
+    app.logger.debug = lambda *args, **kwargs: None
+app.debug = app.logger.debug
 app.tl = app.translator.tl
 app.tlbook = app.translator.tlbook
 app.title = app.tl("title")
@@ -143,9 +145,9 @@ for module in __all__:
     if "dev" not in app.current_version and module.__name__.split(".")[-1] == "dev":
         continue
     module.Methods(app)
-    app.logger.info(f"Loaded {module.__name__} methods")
+    app.logger.info(f"Loaded {module.__name__}")
 
-app.setup_hook = create_task(setup_hook())
+app.setup_hook = create_task(setup_hook(app))
 app.logger.success(
     f"Started backend v{app.current_version} in {int((datetime.now() - app.start_at).total_seconds() * 1000)}ms"
 )
