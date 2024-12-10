@@ -60,5 +60,3 @@ class Checks:
             )
         return user
 
-    async def anti_ddos(self, request: Request):
-        self.app.chache = {}

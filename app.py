@@ -4,7 +4,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from datetime import datetime
-from core import Translator, Checks, setup_hook
+from core import Translator, Checks, setup_hook, Email
 from loguru import logger
 from pprint import pformat
 from loguru._defaults import LOGURU_FORMAT
@@ -89,6 +89,8 @@ app.url = getenv("FRONTEND_URL", "")
 app.api_url = getenv("BACKEND_URL", "")
 app.root = "/"
 app.translator = Translator()
+app.email = Email()
+app.email.from_addr = getenv("EMAIL_FROM", "")
 app.logger = logger
 app.tl = app.translator.tl
 app.tlbook = app.translator.tlbook

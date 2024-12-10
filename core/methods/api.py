@@ -7,7 +7,7 @@ from fastapi.responses import (
     Response,
 )
 from datetime import datetime
-from ..database import User, perfomance, choice, ascii_letters, digits, getenv
+from ..database import User, perfomance, choice, ascii_letters, getenv
 from ..other import track_usage
 from typing import Literal, Annotated
 import time
@@ -67,7 +67,7 @@ class Methods:
         @app.get(
             self.path + "status",
             tags=["default"],
-            dependencies=[Depends(app.checks.anti_ddos)],
+            dependencies=[],
         )
         @track_usage
         async def status(request: Request) -> JSONResponse:
@@ -180,3 +180,8 @@ class Methods:
                         password="".join(choice(ascii_letters) for _ in range(12)),
                     )
             return JSONResponse({"status": "ok"}, headers=app.no_cache_headers)
+
+        @app.get(self.path + "mail", dependencies=[Depends(app.checks.admin_check)])
+        @track_usage
+        async def mail(request: Request, email: str) -> JSONResponse:
+            app.email.send(email, "Yo", "fastapi test mail message")

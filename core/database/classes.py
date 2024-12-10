@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from datetime import datetime
-from typing import Self, List
+from typing import Self, List, Literal, Dict
 from cryptography.fernet import Fernet
 from os import getenv
 from dotenv import load_dotenv
@@ -78,10 +78,20 @@ class BaseItem(Base):
     class Audit: ...
 
     audit = Audit()
-        
-    id = Column(Integer, Identity(start=1, increment=1), primary_key=True, unique=True, info={"searchable": True, "safe": True})
-    created_at = Column(DateTime(timezone=True), default=func.now(), info={"safe": True})
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), info={"safe": True})
+
+    id = Column(
+        Integer,
+        Identity(start=1, increment=1),
+        primary_key=True,
+        unique=True,
+        info={"searchable": True, "safe": True},
+    )
+    created_at = Column(
+        DateTime(timezone=True), default=func.now(), info={"safe": True}
+    )
+    updated_at = Column(
+        DateTime(timezone=True), onupdate=func.now(), info={"safe": True}
+    )
     is_deleted = Column(Boolean)
 
     @classmethod
@@ -187,7 +197,7 @@ class BaseItem(Base):
         ignore_crypt: bool = False,
         ignore_blacklist: bool = False,
         **kwargs,
-    ) -> Self | None:
+    ) -> Self:
         """
         Updates an item in the database.
 
@@ -232,7 +242,13 @@ class BaseItem(Base):
 
     @classmethod
     async def search(
-        cls, query: str, limit: int = -1, offset: int = 0, safe: bool = True, search_all: bool = False, **filters
+        cls,
+        query: str,
+        limit: int = -1,
+        offset: int = 0,
+        safe: bool = True,
+        search_all: bool = False,
+        **filters,
     ) -> List[Self]:
         """
         Searches for items in the database that match the given query.
@@ -270,16 +286,59 @@ class BaseItem(Base):
                 items.extend(
                     (
                         await session.execute(
-                            select(cls).where(
-                                getattr(cls, key).ilike(f"%{query}%")
-                            ).filter_by(**filters)
+                            select(cls)
+                            .where(getattr(cls, key).ilike(f"%{query}%"))
+                            .filter_by(**filters)
                         )
-                    ).scalars().all()
+                    )
+                    .scalars()
+                    .all()
                 )
+            items = list(set(items))
+            items = sorted(
+                items,
+                key=lambda item: max(
+                    cls.similarity(getattr(item, key), query) for key in keys
+                ),
+                reverse=True,
+            )
             items = items[offset : (offset + limit) if limit != -1 else len(items)]
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
         return items
-            
+
+    @staticmethod
+    def similarity(a: str, b: str) -> float:
+        return sum(1 for x, y in zip(str(a), str(b)) if x == y) / max(
+            len(str(a)), len(str(b))
+        )
+
+    @classmethod
+    async def _filter_by(
+        cls, items: List[Self], strict: bool = False, **filters
+    ) -> List[Self]:
+        result_items = []
+        for item in items:
+            matches = True
+            for key, value in filters.items():
+                item_value = getattr(item, key, "")
+                if strict:
+                    if item_value != value:
+                        matches = False
+                        break
+                else:
+                    if cls.similarity(item_value, value) < 0.5:
+                        matches = False
+                        break
+            if matches:
+                result_items.append(item)
+        return result_items
+
+    @classmethod
+    async def _sort_by(
+        cls, items: List[Self], key: str, order: Literal["asc", "desc"] = "asc"
+    ) -> List[Self]:
+        return sorted(items, key=lambda x: getattr(x, key), reverse=order == "desc")
+
     @classmethod
     def _crypt(cls, value: str, crypt_key: str = None) -> str:
         if not crypt_key:
@@ -343,7 +402,7 @@ class BaseItem(Base):
                 self.__dict__[key] = self._decrypt(value)
         return self
 
-    async def get_audit(self) -> dict[str, List["AuditLog"]]:
+    async def get_audit(self) -> Dict[str, List["AuditLog"]]:
         """
         Gets all audit logs for the current item.
 
@@ -351,7 +410,7 @@ class BaseItem(Base):
         and the values being lists of AuditLog objects.
 
         Returns:
-            dict[str, List["AuditLog"]]: A dictionary with all audit logs for the item.
+            Dict[str, List["AuditLog"]]: A dictionary with all audit logs for the item.
         """
         for key in self.__dict__.keys():
             if key.startswith("_"):
@@ -384,7 +443,9 @@ class User(BaseItem):
     __tablename__ = "users"
     __table_args__ = {"comment": "main"}
 
-    username = Column(String(48), unique=True, nullable=False, info={"searchable": True, "safe": True})
+    username = Column(
+        String(48), unique=True, nullable=False, info={"searchable": True, "safe": True}
+    )
     email = Column(String(128), unique=True)
     password = Column(String(256))
     token = Column(String(256), unique=True)
@@ -397,7 +458,7 @@ class AuditLog(BaseItem):
 
     updated_at = None
     is_deleted = None
-    origin_table = Column(String(48), nullable=False)
+    origin_table = Column(String(48), nullable=False, info={"searchable": True})
     origin_id = Column(Integer, nullable=False, info={"searchable": True})
     key = Column(String(64), nullable=False, info={"searchable": True})
     old_value = Column(String(256), info={"searchable": True})
@@ -425,8 +486,17 @@ class AuditLog(BaseItem):
             await session.commit()
 
     @classmethod
-    async def search(cls, query: str, limit: int = -1, offset: int = 0, safe: bool = True, search_all: bool = False, **filters):
+    async def search(
+        cls,
+        query: str,
+        limit: int = -1,
+        offset: int = 0,
+        safe: bool = True,
+        search_all: bool = False,
+        **filters,
+    ):
         return await super().search(query, limit, offset, False, search_all, **filters)
+
 
 async def create_tables():
     try:
