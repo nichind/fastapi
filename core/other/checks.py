@@ -59,4 +59,3 @@ class Checks:
                 status_code=403, detail=request.state.tl("NOT_AN_ADMINISTRATOR")
             )
         return user
-

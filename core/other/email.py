@@ -9,4 +9,3 @@ class Email:
         if not self.from_addr:
             self.from_addr = self.smtp.ehlo()[1] or "localhost"
         self.smtp.sendmail(self.from_addr, to_addr, f"Subject: {subject}\n\n{body}")
-        
