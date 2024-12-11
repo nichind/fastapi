@@ -7,7 +7,15 @@ from fastapi.responses import (
     Response,
 )
 from datetime import datetime
-from ..database import User, perfomance, choice, ascii_letters, getenv, load_dotenv, Session
+from ..database import (
+    User,
+    perfomance,
+    choice,
+    ascii_letters,
+    getenv,
+    load_dotenv,
+    Session,
+)
 from ..other import track_usage
 from typing import Literal, Annotated
 import time
@@ -38,7 +46,9 @@ class Methods:
             for i in app.ipratelimit[ip]:
                 if time.time() - i > 60:
                     app.ipratelimit[ip].remove(i)
-            user = await Session.get_user(token=request.headers.get("X-Authorization", None))
+            user = await Session.get_user(
+                token=request.headers.get("X-Authorization", None)
+            )
             if len(app.ipratelimit[ip]) > int(getenv("IP_RATE_LIMIT_PER_MINUTE", 60)):
                 return JSONResponse(
                     status_code=429,

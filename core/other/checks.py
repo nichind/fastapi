@@ -54,7 +54,7 @@ class Checks:
             raise HTTPException(
                 status_code=401, detail=request.state.tl("INVALID_TOKEN")
             )
-        if not user.is_admin:
+        if "admin" not in user.groups:
             raise HTTPException(
                 status_code=403, detail=request.state.tl("NOT_AN_ADMINISTRATOR")
             )

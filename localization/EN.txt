@@ -8,4 +8,4 @@ INVALID_PASSWORD=Invalid password
 INVALID_EMAIL=Invalid email
 IP_RATE_LIMIT_EXCEEDED=You have exceeded the rate limit of requests per minute, please try again later
 CONFIRM_REGISTRATION_SUBJECT=Confirm registration
-CONFIRM_REGISTRATION_BODY=Hi {user}, Thanks for registering on wao.moe, link to confirm your email: {key_url}<br>IP: {ip}
+CONFIRM_REGISTRATION_BODY=Hi {user}, Thanks for registering on wao.moe, link to confirm your email: {key_url}\nIP: {ip}

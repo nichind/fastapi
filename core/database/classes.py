@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     func,
     Identity,
+    ForeignKey,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, reconstructor
@@ -72,6 +73,7 @@ class BaseItem(Base):
     """
     Base class for all database items
     """
+
     __abstract__ = True
 
     class Audit: ...
@@ -95,7 +97,9 @@ class BaseItem(Base):
 
     @reconstructor
     def init_on_load(self) -> None:
-        self.update = lambda **kwargs: self.__class__.update(id=self.id, **{k: v for k, v in kwargs.items() if k != "id"})
+        self.update = lambda **kwargs: self.__class__.update(
+            id=self.id, **{k: v for k, v in kwargs.items() if k != "id"}
+        )
         self.delete = lambda: self.__class__.delete(id=self.id)
 
     @classmethod
@@ -237,7 +241,9 @@ class BaseItem(Base):
                     old_value = str(old_value)
                 await AuditLog.add(
                     old_value=old_value,
-                    new_value=value if isinstance(value, (int, float, str, bool, type(None))) else str(value),
+                    new_value=value
+                    if isinstance(value, (int, float, str, bool, type(None)))
+                    else str(value),
                     key=key,
                     origin_id=cls.id,
                     origin_table=cls.__tablename__,
@@ -486,12 +492,16 @@ class User(BaseItem):
     reg_type = Column(String(32))
     email_confirm_code = Column(String(64))
     groups = Column(JSON)
-    
+    email_confirmed = Column(Boolean)
+    reg_ip = Column(String(48))
+
     @reconstructor
     def init_on_load(self) -> None:
         super().init_on_load()
         self.get_sessions = lambda: self.__class__.get_sessions(id=self.id)
-        self.create_session = lambda **kwargs: self.__class__.create_session(cls=self, id=self.id, **kwargs)
+        self.create_session = lambda **kwargs: self.__class__.create_session(
+            cls=self, id=self.id, **kwargs
+        )
 
     async def create_session(cls, id: int = None, **kwargs) -> "Session":
         start_at = datetime.now()
@@ -502,11 +512,7 @@ class User(BaseItem):
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
-            _ = Session(
-                    user_id=id,
-                    token=cls._generate_secret(64),
-                    **kwargs
-            )
+            _ = Session(user_id=id, token=cls._generate_secret(72), **kwargs)
             session.add(_)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
@@ -530,11 +536,12 @@ class User(BaseItem):
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
         return _
 
+
 class Session(BaseItem):
     __tablename__ = "sessions"
     __table_args__ = {"comment": "main"}
 
-    user_id = Column(Integer, nullable=False)
+    user_id = Column(Integer, ForeignKey(User.id), nullable=False)
     token = Column(String(256), nullable=False)
     ip = Column(String(32))
     user_agent = Column(String(256))
@@ -543,6 +550,8 @@ class Session(BaseItem):
     country = Column(String(32))
     region = Column(String(32))
     city = Column(String(32))
+    method = Column(String(32))
+    third_party_oauth = Column(String(256))
 
     @classmethod
     async def get_user(cls, token: str) -> "User":
@@ -550,6 +559,7 @@ class Session(BaseItem):
         if not session or session.is_deleted:
             return None
         return await User.get(id=session.user_id)
+
 
 class AuditLog(BaseItem):
     __tablename__ = "audit_logs"

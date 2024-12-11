@@ -10,13 +10,10 @@ async def setup_hook(app, *args, **kwargs) -> None:
             app.debug("Creating admin...")
             user = await User.add(username="dev")
         app.debug("Setting admin...")
-        await user.update(
-            password=user._generate_secret(128), groups=["admin"]
-        )
+        await user.update(password=user._generate_secret(128), groups=["admin"])
         if len(await user.get_sessions()) == 0:
             await user.create_session()
             app.debug("Created admin session")
-        app.debug(f"Admin sessions: {len(await user.get_sessions())}")
     except Exception as exc:
         app.debug("Error while creating admin:", exc)
 
