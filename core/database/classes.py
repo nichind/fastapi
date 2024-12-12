@@ -119,12 +119,13 @@ class BaseItem(Base):
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
-            item = cls(**kwargs)
             for key, value in kwargs.items():
                 if not ignore_blacklist and cls._is_value_blacklisted(key, value):
                     raise database_exc.Blacklisted(key, value)
                 if key in getenv("CRYPT_VALUES", "").split(",") and not ignore_crypt:
-                    value = cls._crypt(value)
+                    kwargs[key] = cls._crypt(value)
+            item = cls(**kwargs)
+            for key, value in kwargs.items():
                 setattr(item, key, value)
             session.add(item)
             await session.commit()
@@ -546,7 +547,7 @@ class Session(BaseItem):
     ip = Column(String(32))
     user_agent = Column(String(256))
     last_used = Column(DateTime(timezone=True))
-    device = Column(String(32))
+    platform = Column(String(32))
     country = Column(String(32))
     region = Column(String(32))
     city = Column(String(32))

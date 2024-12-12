@@ -29,11 +29,11 @@ class Methods:
         async def register(
             request: Request,
             account: Account,
-            type: Literal["default", "google", "github", "discord"] = "default",
+            reg_type: Literal["google", "github", "discord"] = None,
         ) -> JSONResponse:
             errors = []
 
-            if type != "default":
+            if reg_type == "google":
                 return JSONResponse(
                     {
                         "url": f"https://accounts.google.com/o/oauth2/auth?response_type=code&client_id={getenv('GOOGLE_CLIENT_ID', '')}&redirect_uri={app.api_url or request.base_url}account/auth/google&scope=openid%20profile%20email&access_type=offline"
@@ -77,7 +77,7 @@ class Methods:
                         email=account.email,
                         password=account.password,
                         reg_ip=request.state.ip,
-                        reg_type=type if type != "default" else None,
+                        reg_type=reg_type,
                         email_confirm_code=email_confirm_code,
                     )
                     app.debug(f"User created: {user}")
@@ -103,11 +103,13 @@ class Methods:
                             "token": (
                                 await user.create_session(
                                     ip=request.state.ip,
-                                    user_agent=request.headers.get("user-agent", ""),
-                                    country=request.headers.get("cf-ipcountry", ""),
-                                    region=request.headers.get("cf-region", ""),
-                                    city=request.headers.get("cf-city", ""),
-                                    device=request.headers.get("cf-device", ""),
+                                    user_agent=request.headers.get("user-agent", None),
+                                    country=request.headers.get("cf-ipcountry", None),
+                                    region=request.headers.get("cf-region", None),
+                                    city=request.headers.get("cf-city", None),
+                                    platform=request.headers.get(
+                                        "sec-ch-ua-platform", None
+                                    ),
                                 )
                             ).token,
                         },
@@ -116,7 +118,7 @@ class Methods:
                     )
                 except Exception as e:
                     app.logger.error(e)
-                    errors.append("An error occurred...")
+                    return
             return JSONResponse(
                 {"details": errors}, status_code=400, headers=app.no_cache_headers
             )
@@ -141,6 +143,66 @@ class Methods:
                 )
             return JSONResponse(
                 {"details": request.state.tl("EMAIL_NOT_FOUND")},
+                status_code=400,
+                headers=app.no_cache_headers,
+            )
+
+        @app.get(self.path + "auth/login", tags=["auth"])
+        @app.limit("30/hour")
+        @track_usage
+        async def login(request: Request, username: str, password: str) -> JSONResponse:
+            user = await User.get(username=username)
+            if not user:
+                return JSONResponse(
+                    {"details": request.state.tl("USER_NOT_FOUND")},
+                    status_code=400,
+                    headers=app.no_cache_headers,
+                )
+            if password == (user.decrypted()).password:
+                for session in await user.get_sessions():
+                    if not session.ip or len(session.ip.split(".")) != 4:
+                        continue
+                    _ = session.ip.split(".")
+                    if (
+                        _[0] == session.ip.split(".")[0]
+                        and _[1] == session.ip.split(".")[1]
+                        and _[2] == session.ip.split(".")[2]
+                    ):
+                        await session.update(
+                            ip=request.state.ip,
+                            user_agent=request.headers.get("user-agent", None),
+                            country=request.headers.get("cf-ipcountry", None),
+                            region=request.headers.get("cf-region", None),
+                            city=request.headers.get("cf-city", None),
+                            platform=request.headers.get("sec-ch-ua-platform", None),
+                        )
+                        return JSONResponse(
+                            {
+                                "details": request.state.tl("LOGGED_IN"),
+                                "token": session.token,
+                            }
+                        )
+                return JSONResponse(
+                    {
+                        "details": request.state.tl("LOGGED_IN"),
+                        "token": (
+                            await user.create_session(
+                                ip=request.state.ip,
+                                user_agent=request.headers.get("user-agent", None),
+                                country=request.headers.get("cf-ipcountry", None),
+                                region=request.headers.get("cf-region", None),
+                                city=request.headers.get("cf-city", None),
+                                platform=request.headers.get(
+                                    "sec-ch-ua-platform", None
+                                ),
+                            )
+                        ).token,
+                    },
+                    status_code=200,
+                    headers=app.no_cache_headers,
+                )
+            return JSONResponse(
+                {"details": request.state.tl("INCORRECT_PASSWORD")},
                 status_code=400,
                 headers=app.no_cache_headers,
             )

@@ -16,6 +16,7 @@ async def setup_hook(app, *args, **kwargs) -> None:
             app.debug("Created admin session")
     except Exception as exc:
         app.debug("Error while creating admin:", exc)
+    app.debug("Setup hook finished")
 
 
 async def sheduled_backup() -> None:
