@@ -23,12 +23,12 @@ from time import sleep
 from loguru import logger
 from string import ascii_letters, digits
 from random import choice
+import inspect
 from asyncio import get_event_loop, new_event_loop
 import core.database.exceptions as database_exc
 
 
 load_dotenv()
-db_backup_folder = getenv("DB_FOLDER_PATH") + "backups/"
 engines = {
     n: create_async_engine(
         "sqlite+aiosqlite:///"
@@ -54,15 +54,14 @@ class PerfomanceMeter:
             await sleep(60 * 5)
             if len(self.all) > 10**6:
                 self.all = self.all[-(10**6) :]
-            logger.info("Database delay report")
+            avg_all = sum(self.all) / len(self.all)
+            avg_1k = sum(self.all[-1000:]) / len(self.all[-1000:])
+            avg_100 = sum(self.all[-100:]) / len(self.all[-100:])
             logger.info(
-                f"Average time per action: {sum(self.all) / len(self.all) / 1000:.2f}ms"
-            )
-            logger.info(
-                f"Average time per action (last 1k): {sum(self.all[-1000:]) / len(self.all[-1000:]) / 1000:.2f}ms"
-            )
-            logger.info(
-                f"Average time per action (last 100): {sum(self.all[-100:]) / len(self.all[-100:]) / 1000:.2f}ms"
+                f"Database delay report:\n"
+                f"  - Average time per action: {avg_all / 1000:.2f}ms\n"
+                f"  - Average time per action (last 1k): {avg_1k / 1000:.2f}ms\n"
+                f"  - Average time per action (last 100): {avg_100 / 1000:.2f}ms"
             )
 
 
@@ -101,7 +100,10 @@ class BaseItem(Base):
             id=self.id, **{k: v for k, v in kwargs.items() if k != "id"}
         )
         self.delete = lambda: self.__class__.delete(id=self.id)
-
+        for name, func in inspect.getmembers(self.__class__, inspect.isfunction):
+            if 'id' in func.__code__.co_varnames:
+                self.__dict__[name] = lambda **kwargs: func(id=self.id, **{k: v for k, v in kwargs.items() if k != "id"})
+                
     @classmethod
     async def add(
         cls, ignore_crypt: bool = False, ignore_blacklist: bool = True, **kwargs
@@ -574,6 +576,11 @@ class AuditLog(BaseItem):
     old_value = Column(String(256), info={"searchable": True})
     new_value = Column(String(256), info={"searchable": True})
 
+    @reconstructor
+    def init_on_load(self) -> None:
+        super().init_on_load()
+        self.search = lambda **kwargs: self.__class__.search(safe=False if "safe" not in kwargs else kwargs["safe"], **{k: v for k, v in kwargs.items() if k != "safe"})
+
     @classmethod
     async def add(cls, **kwargs):
         await super().add(**kwargs)
@@ -590,22 +597,10 @@ class AuditLog(BaseItem):
                 .order_by(cls.id.desc())
             )
             audits = result.scalars().all()
-            if len(audits) > int(getenv("MAX_AUDITS_PER_ITEM", 6)):
-                for audit in audits[int(getenv("MAX_AUDITS_PER_ITEM", 6)) :]:
+            if len(audits) > int(getenv("MAX_AUDITS_PER_ITEM", 4)):
+                for audit in audits[int(getenv("MAX_AUDITS_PER_ITEM", 4)) :]:
                     await session.delete(audit)
             await session.commit()
-
-    @classmethod
-    async def search(
-        cls,
-        query: str,
-        limit: int = -1,
-        offset: int = 0,
-        safe: bool = True,
-        search_all: bool = False,
-        **filters,
-    ):
-        return await super().search(query, limit, offset, False, search_all, **filters)
 
 
 async def create_tables():

@@ -128,7 +128,7 @@ class Methods:
         )
         @app.limit("5/minute")
         @track_usage
-        async def confirmEmail(request: Request, key: str) -> JSONResponse:
+        async def confirmEmail(request: Request, key: str, redirect: str = None) -> JSONResponse:
             user = await User.get(email_confirm_code=key)
             if user:
                 app.debug(f"User confirmed: {user}")
@@ -136,6 +136,8 @@ class Methods:
                     email_confirmed=True,
                     email_confirm_code=None,
                 )
+                if redirect:
+                    return RedirectResponse(redirect, status_code=302)
                 return JSONResponse(
                     {"details": request.state.tl("EMAIL_CONFIRMED")},
                     status_code=200,

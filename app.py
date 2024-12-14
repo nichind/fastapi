@@ -22,9 +22,9 @@ import logging
 
 async def rechache_translations():
     while True:
-        app.logger.info("Chaching translations")
+        app.info("Chaching translations")
         app.translator.chache_translations()
-        app.logger.info(
+        app.info(
             f"Re-cached translations ({sum([len(x) for x in app.tlbook.values()])} lines in {len(app.tlbook)} lang)"
         )
         await sleep(int(getenv("TRANSLATE_RECACHE_INTERVAL", 3600)))
@@ -89,8 +89,12 @@ app.url = getenv("FRONTEND_URL", "")
 app.api_url = getenv("BACKEND_URL", "")
 app.root = "/"
 app.translator = Translator()
-app.email = Email(getenv("EMAIL_FROM", "mail@" + app.url), app)
+app.email = Email(getenv("EMAIL_FROM", "mail@" + app.url.split("//")[1]), app)
 app.logger = logger
+app.info = app.logger.info
+app.error = app.logger.error
+app.warning = app.logger.warning
+app.success = app.logger.success
 if not bool(getenv("DEBUG", False)):
     app.logger.debug = lambda *args, **kwargs: None
 app.debug = app.logger.debug
@@ -133,7 +137,7 @@ app.no_cache_headers = {
     "Pragma": "no-cache",
     "Expires": "0",
 }
-app.logger.info("Loading modules from core.methods...")
+app.info("Loading modules from core.methods...")
 app.checks = Checks(app)
 
 modules = glob(join(dirname(__file__) + "/core/methods/", "*.py"))
@@ -145,14 +149,14 @@ for module in __all__:
     if "dev" not in app.current_version and module.__name__.split(".")[-1] == "dev":
         continue
     module.Methods(app)
-    app.logger.info(f"Loaded {module.__name__}")
+    app.info(f"Loaded {module.__name__}")
 
 app.setup_hook = create_task(setup_hook(app))
-app.logger.success(
+app.success(
     f"Started backend v{app.current_version} in {int((datetime.now() - app.start_at).total_seconds() * 1000)}ms"
 )
 app.setup_hook.add_done_callback(
-    lambda x: app.logger.info(
+    lambda x: app.info(
         f"\n\n\t{app.title} v{app.current_version}\n\tCommit #{app.commit}\n\tModules loaded: {len(__all__)}\n"
     )
 )
