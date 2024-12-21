@@ -51,11 +51,15 @@ class Methods:
             user = await Session.get_user(
                 token=request.headers.get("X-Authorization", None)
             )
-            if len(app.ipratelimit[ip]) > int(getenv("IP_RATE_LIMIT_PER_PERIOD", 60)) or len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()]) > int(getenv("IP_RATE_LIMIT_PER_SECOND", 3)):
+            if len(app.ipratelimit[ip]) > int(
+                getenv("IP_RATE_LIMIT_PER_PERIOD", 60)
+            ) or len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()]) > int(
+                getenv("IP_RATE_LIMIT_PER_SECOND", 3)
+            ):
                 return JSONResponse(
                     status_code=429,
                     content={"detail": request.state.tl("IP_RATE_LIMIT_EXCEEDED")},
-                )                
+                )
             try:
                 response = await call_next(request)
             except Exception as exc:
@@ -65,7 +69,9 @@ class Methods:
                     content={"detail": request.state.tl("SERVER_ERROR")},
                 )
             response.headers["X-Auth-As"] = f"{user.username}" if user else str(None)
-            response.headers["X-Requests-Last-Minute"] = str(len([x for x in app.ipratelimit[ip] if x - 60 <= time.time()]))
+            response.headers["X-Requests-Last-Minute"] = str(
+                len([x for x in app.ipratelimit[ip] if x - 60 <= time.time()])
+            )
             process_time = time.perf_counter() - start_time
             response.headers["X-Process-Time"] = str(process_time)
             response.headers["X-Process-Time-MS"] = str(process_time * 1000)

@@ -61,7 +61,7 @@ def format_record(record: dict) -> str:
 
 
 load_dotenv()
-version = getenv("VERSION", "0.3.4")    # RELEASE.GLOBAL.EDIT
+version = getenv("VERSION", "0.3.4")  # RELEASE.GLOBAL.EDIT
 tags_metadata = [
     {
         "name": "default",

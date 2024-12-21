@@ -60,7 +60,7 @@ class Checks:
             raise HTTPException(
                 status_code=403, detail=request.state.tl("NOT_AN_ADMINISTRATOR")
             )
-        return user 
+        return user
 
     async def turnstile_check(
         self, request: Request, cf_turnstile_response: Annotated[str, Header()] = None
@@ -78,6 +78,8 @@ class Checks:
         if turnstile_response.success is not True:
             raise HTTPException(
                 status_code=400, detail=request.state.tl("INVALID_TURNSTILE_RESPONSE")
-            ) 
-        self.app.turnstile_buf[request.state.ip] = time() + int(getenv("TURNSTILE_ACCESS_BUF", 60*60))
+            )
+        self.app.turnstile_buf[request.state.ip] = time() + int(
+            getenv("TURNSTILE_ACCESS_BUF", 60 * 60)
+        )
         return True
