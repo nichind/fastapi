@@ -1,12 +1,9 @@
-from core.database import *
 from asyncio import run
+from core.database import *
 
 
 async def main():
-    session = await Session.get_user(
-        "LJJ.DPM3kbHzAZNTV3l57PXzOsfA.rAs9HX0G4PzDesroklKBZhsl2B8Ff3kqz"
-    )
-    print(session)
+    print(await Session.get_user("hMY.8RGPgOPB3YswhCIuSG2EpRuV.f96WTzwQafJsgHAPGsf96XLRqp3LycZS817fRga8Q"))
 
 
 run(main())

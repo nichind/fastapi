@@ -5,6 +5,7 @@ from fastapi.responses import (
     PlainTextResponse,
     FileResponse,
     Response,
+    HTMLResponse,
 )
 from datetime import datetime
 from ..database import (
@@ -18,6 +19,7 @@ from ..database import (
 )
 from ..other import track_usage
 from typing import Literal, Annotated
+from os import path
 import time
 
 
@@ -41,22 +43,29 @@ class Methods:
             if ip not in app.ipratelimit:
                 app.ipratelimit[ip] = []
             load_dotenv()
-            if len(app.ipratelimit[ip]) <= int(getenv("IP_RATE_LIMIT_PER_MINUTE", 60)):
+            if len(app.ipratelimit[ip]) <= int(getenv("IP_RATE_LIMIT_PER_PERIOD", 60)):
                 app.ipratelimit[ip] += [time.time()]
             for i in app.ipratelimit[ip]:
-                if time.time() - i > 60:
+                if time.time() - i > int(getenv("IP_RATE_LIMIT_PERIOD_SECONDS", 60)):
                     app.ipratelimit[ip].remove(i)
             user = await Session.get_user(
                 token=request.headers.get("X-Authorization", None)
             )
-            if len(app.ipratelimit[ip]) > int(getenv("IP_RATE_LIMIT_PER_MINUTE", 60)):
+            if len(app.ipratelimit[ip]) > int(getenv("IP_RATE_LIMIT_PER_PERIOD", 60)) or len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()]) > int(getenv("IP_RATE_LIMIT_PER_SECOND", 3)):
                 return JSONResponse(
                     status_code=429,
                     content={"detail": request.state.tl("IP_RATE_LIMIT_EXCEEDED")},
+                )                
+            try:
+                response = await call_next(request)
+            except Exception as exc:
+                app.logger.error(exc)
+                return JSONResponse(
+                    status_code=500,
+                    content={"detail": request.state.tl("SERVER_ERROR")},
                 )
-            response = await call_next(request)
             response.headers["X-Auth-As"] = f"{user.username}" if user else str(None)
-            response.headers["X-Requests-Last-Minute"] = str(len(app.ipratelimit[ip]))
+            response.headers["X-Requests-Last-Minute"] = str(len([x for x in app.ipratelimit[ip] if x - 60 <= time.time()]))
             process_time = time.perf_counter() - start_time
             response.headers["X-Process-Time"] = str(process_time)
             response.headers["X-Process-Time-MS"] = str(process_time * 1000)
@@ -167,6 +176,8 @@ class Methods:
         @app.get(self.path + "favicon.ico", include_in_schema=False)
         @app.limit("10/minute")
         async def favicon(request: Request):
+            if not path.exists(app.root_dir + "/favicon.ico"):
+                return None
             return FileResponse(app.root_dir + "/logo.png")
 
         @app.get(self.path + "stress", dependencies=[Depends(app.checks.admin_check)])
@@ -190,3 +201,53 @@ class Methods:
         @track_usage
         async def mail(request: Request, email: str) -> JSONResponse:
             app.email.send(email, "Yo", "fastapi test mail message")
+
+        @app.get(self.path + "renderTurnstile", dependencies=[])
+        @track_usage
+        async def render(request: Request) -> HTMLResponse:
+            return HTMLResponse("""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Turnstile</title>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script>
+        function onFormSubmit(event) {
+            event.preventDefault();
+            const xhr = new XMLHttpRequest();
+            xhr.open("GET", "/validateTurnstile", true);
+            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+            xhr.setRequestHeader("Cf-Turnstile-Response", document.querySelector('[name="cf-turnstile-response"]').value);
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+                    console.log("Validation success:", xhr.responseText);
+                } else if (xhr.readyState === XMLHttpRequest.DONE) {
+                    console.error("Validation failed:", xhr.responseText);
+                }
+            };
+            xhr.send();
+        }
+    </script>
+</head>
+<body>
+    <h1>Turnstile</h1>
+    <form onsubmit="onFormSubmit(event)">
+        <div class="cf-turnstile" data-sitekey="0x4AAAAAAA270-4SYmm4dwbm"
+         data-action="submit"
+         data-theme="dark"
+         data-callback=""></div>
+        <button type="submit">Validate</button>
+    </form>
+</body>
+</html>
+""")
+
+        @app.get(
+            self.path + "validateTurnstile",
+            dependencies=[Depends(app.checks.turnstile_check)],
+        )
+        @track_usage
+        async def validate(request: Request) -> JSONResponse:
+            return "Hello world!"

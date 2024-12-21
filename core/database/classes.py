@@ -75,7 +75,9 @@ class BaseItem(Base):
 
     __abstract__ = True
 
-    class Audit: ...
+    class Audit:
+        def __repr__(self):
+            return f'<Audit audits={sum([len(x) for x in self.__dict__.values()])} [{", ".join([str(x) for x in self.__dict__.keys() if len(self.__dict__[x]) > 0])}]>'
 
     audit = Audit()
 
@@ -101,9 +103,11 @@ class BaseItem(Base):
         )
         self.delete = lambda: self.__class__.delete(id=self.id)
         for name, func in inspect.getmembers(self.__class__, inspect.isfunction):
-            if 'id' in func.__code__.co_varnames:
-                self.__dict__[name] = lambda **kwargs: func(id=self.id, **{k: v for k, v in kwargs.items() if k != "id"})
-                
+            if "id" in func.__code__.co_varnames:
+                self.__dict__[name] = lambda **kwargs: func(
+                    id=self.id, **{k: v for k, v in kwargs.items() if k != "id"}
+                )
+
     @classmethod
     async def add(
         cls, ignore_crypt: bool = False, ignore_blacklist: bool = True, **kwargs
@@ -225,7 +229,7 @@ class BaseItem(Base):
         if not id and hasattr(cls, "id"):
             id = cls.id
         if not id:
-            raise database_exc.NoID
+            raise database_exc.NoID()
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
@@ -323,7 +327,7 @@ class BaseItem(Base):
         return items
 
     @classmethod
-    async def delete(cls, id: int = None, **filters):
+    async def delete(cls, id: int = None, iknowwhatimdoing: bool = False, **filters):
         """
         Deletes an item from the database.
 
@@ -334,11 +338,13 @@ class BaseItem(Base):
         Returns:
             The deleted item if found, None otherwise
         """
+        if not iknowwhatimdoing:
+            raise database_exc.NotIknowWhatImDoing()
         start_at = datetime.now()
         if not id:
             id = cls.id if cls.id else None
         if not id:
-            raise database_exc.NoID
+            raise database_exc.NoID()
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
@@ -388,7 +394,7 @@ class BaseItem(Base):
         if not crypt_key:
             crypt_key = getenv("CRYPT_KEY", None)
         if not crypt_key:
-            raise database_exc.NoCryptKey
+            raise database_exc.NoCryptKey()
         crypt = Fernet(crypt_key.encode("utf-8"))
         return crypt.encrypt(value.encode()).decode()
 
@@ -397,7 +403,7 @@ class BaseItem(Base):
         if not crypt_key:
             crypt_key = getenv("CRYPT_KEY", None)
         if not crypt_key:
-            raise database_exc.NoCryptKey
+            raise database_exc.NoCryptKey()
         crypt = Fernet(crypt_key.encode("utf-8"))
         return crypt.decrypt(value.encode()).decode()
 
@@ -408,7 +414,7 @@ class BaseItem(Base):
         if not crypt_key:
             crypt_key = getenv("CRYPT_KEY", None)
         if not crypt_key:
-            raise database_exc.NoCryptKey
+            raise database_exc.NoCryptKey()
         crypt = Fernet(crypt_key.encode("utf-8"))
         return crypt.decrypt(encrypted_value.encode()).decode() == decrypted_value
 
@@ -472,7 +478,7 @@ class BaseItem(Base):
         return f"<{self.__class__.__name__} {self.id}>"
 
     def __int__(self) -> int:
-        return self.id
+        return self.id or 0
 
 
 class ServerSetting(BaseItem):
@@ -511,7 +517,7 @@ class User(BaseItem):
         if not id and hasattr(cls, "id"):
             id = cls.id
         if not id:
-            raise database_exc.NoID
+            raise database_exc.NoID()
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
@@ -527,7 +533,7 @@ class User(BaseItem):
         if not id and hasattr(cls, "id"):
             id = cls.id
         if not id:
-            raise database_exc.NoID
+            raise database_exc.NoID()
         async with sessions[
             cls.__table_args__.get("comment", "main")
         ].begin() as session:
@@ -579,7 +585,10 @@ class AuditLog(BaseItem):
     @reconstructor
     def init_on_load(self) -> None:
         super().init_on_load()
-        self.search = lambda **kwargs: self.__class__.search(safe=False if "safe" not in kwargs else kwargs["safe"], **{k: v for k, v in kwargs.items() if k != "safe"})
+        self.search = lambda **kwargs: self.__class__.search(
+            safe=False if "safe" not in kwargs else kwargs["safe"],
+            **{k: v for k, v in kwargs.items() if k != "safe"},
+        )
 
     @classmethod
     async def add(cls, **kwargs):

@@ -128,7 +128,9 @@ class Methods:
         )
         @app.limit("5/minute")
         @track_usage
-        async def confirmEmail(request: Request, key: str, redirect: str = None) -> JSONResponse:
+        async def confirmEmail(
+            request: Request, key: str, redirect: str = None
+        ) -> JSONResponse:
             user = await User.get(email_confirm_code=key)
             if user:
                 app.debug(f"User confirmed: {user}")

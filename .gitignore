@@ -5,3 +5,4 @@ logs
 .env
 *.pyc
 __pychache__
+test.py

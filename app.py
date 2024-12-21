@@ -61,7 +61,7 @@ def format_record(record: dict) -> str:
 
 
 load_dotenv()
-version = getenv("VERSION", "2024.12.1")
+version = getenv("VERSION", "0.3.4")    # RELEASE.GLOBAL.EDIT
 tags_metadata = [
     {
         "name": "default",
@@ -97,12 +97,13 @@ app.warning = app.logger.warning
 app.success = app.logger.success
 if not bool(getenv("DEBUG", False)):
     app.logger.debug = lambda *args, **kwargs: None
-app.debug = app.logger.debug
+app.logdebug = app.logger.debug
 app.tl = app.translator.tl
 app.tlbook = app.translator.tlbook
 app.title = app.tl("title")
 app.description = app.tl("description")
 app.ipratelimit = {}
+app.turnstile_buf = {}
 
 Thread(target=run, args=(rechache_translations(),)).start()
 

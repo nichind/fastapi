@@ -1,6 +1,8 @@
 from fastapi import HTTPException, Header, Request
 from typing import Annotated
-from ..database import User, Session
+from time import time
+from ..database import User, Session, getenv
+from .turnstile import validate
 
 
 class Checks:
@@ -58,4 +60,24 @@ class Checks:
             raise HTTPException(
                 status_code=403, detail=request.state.tl("NOT_AN_ADMINISTRATOR")
             )
-        return user
+        return user 
+
+    async def turnstile_check(
+        self, request: Request, cf_turnstile_response: Annotated[str, Header()] = None
+    ):
+        if self.app.turnstile_buf.get(request.state.ip) is not None:
+            if time() > self.app.turnstile_buf[request.state.ip]:
+                del self.app.turnstile_buf[request.state.ip]
+            else:
+                return True
+        if cf_turnstile_response is None:
+            raise HTTPException(
+                status_code=400, detail=request.state.tl("NO_TURNSTILE_RESPONSE")
+            )
+        turnstile_response = await validate(cf_turnstile_response, request.state.ip)
+        if turnstile_response.success is not True:
+            raise HTTPException(
+                status_code=400, detail=request.state.tl("INVALID_TURNSTILE_RESPONSE")
+            ) 
+        self.app.turnstile_buf[request.state.ip] = time() + int(getenv("TURNSTILE_ACCESS_BUF", 60*60))
+        return True
