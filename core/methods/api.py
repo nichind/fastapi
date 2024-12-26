@@ -256,4 +256,4 @@ class Methods:
         )
         @track_usage
         async def validate(request: Request) -> JSONResponse:
-            return "Hello world!"
+            return JSONResponse({"status": "ok"}, headers=app.no_cache_headers)
