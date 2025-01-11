@@ -68,6 +68,8 @@ class PerfomanceMeter:
 perfomance = PerfomanceMeter()
 
 
+db_debug = lambda *args, **kwargs: logger.debug(*args, **kwargs) if os.getenv("DB_DEBUG", False) else None
+
 class BaseItem(Base):
     """
     Base class for all database items
@@ -136,6 +138,7 @@ class BaseItem(Base):
             session.add(item)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        db_debug(f"ADD {item}")
         return item
 
     @classmethod
@@ -159,6 +162,7 @@ class BaseItem(Base):
                 .first()
             )
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        db_debug(f"GET {item}")
         return item
 
     @classmethod
@@ -190,6 +194,7 @@ class BaseItem(Base):
                 .all()
             )
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        db_debug(f"GET CHUNK {items}")
         return items
 
     @classmethod
@@ -258,6 +263,7 @@ class BaseItem(Base):
                 setattr(cls, key, value)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        db_debug(f"UPDATE {cls}")
         return cls
 
     @classmethod
@@ -324,6 +330,7 @@ class BaseItem(Base):
             )
             items = items[offset : (offset + limit) if limit != -1 else len(items)]
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        db_debug(f"SEARCH {items}")
         return items
 
     @classmethod
@@ -354,6 +361,7 @@ class BaseItem(Base):
             await session.delete(cls)
             await session.commit()
         perfomance.all += [(datetime.now() - start_at).total_seconds()]
+        db_debug(f"DELETE {cls}")
         return cls
 
     @staticmethod
@@ -472,6 +480,7 @@ class BaseItem(Base):
                     origin_table=self.__tablename__, origin_id=self.id, key=key
                 ),
             )
+        db_debug(f"GET AUDIT {self.audit}")
         return self.audit
 
     def __repr__(self) -> str:

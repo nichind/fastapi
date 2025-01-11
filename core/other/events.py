@@ -23,5 +23,5 @@ async def setup_hook(app, *args, **kwargs) -> None:
     app.logdebug("Setup hook finished")
 
 
-async def sheduled_backup() -> None:
+async def scheduled_backup() -> None:
     pass

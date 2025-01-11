@@ -30,52 +30,66 @@ class Methods:
         @app.middleware("http")
         async def main_middleware(request: Request, call_next):
             start_time = time.perf_counter()
-            languages = request.headers.get("accept-language", "en").split(",")
-            language = "en"
-            for lang in languages:
-                lang = lang.strip()
-                if lang in app.tlbook:
-                    language = lang
-                    break
+            language = next(
+                (lang.strip() for lang in request.headers.get("accept-language", "en").split(",") if lang.strip() in app.tlbook),
+                "en"
+            )
+            
             setattr(request.state, "tl", lambda text: app.tl(text, language))
             ip = request.headers.get("cf-connecting-ip", request.client.host)
             setattr(request.state, "ip", ip)
-            if ip not in app.ipratelimit:
-                app.ipratelimit[ip] = []
+            app.ipratelimit.setdefault(ip, [])
             load_dotenv()
-            if len(app.ipratelimit[ip]) <= int(getenv("IP_RATE_LIMIT_PER_PERIOD", 60)):
-                app.ipratelimit[ip] += [time.time()]
-            for i in app.ipratelimit[ip]:
-                if time.time() - i > int(getenv("IP_RATE_LIMIT_PERIOD_SECONDS", 60)):
-                    app.ipratelimit[ip].remove(i)
+
+            app.ipratelimit[ip] = [
+                t for t in app.ipratelimit[ip]
+                if time.time() - t <= int(getenv("IP_RATE_LIMIT_PERIOD_SECONDS", 60))
+            ]
+            app.ipratelimit[ip].append(time.time())
+
             user = await Session.get_user(
                 token=request.headers.get("X-Authorization", None)
             )
-            if len(app.ipratelimit[ip]) > int(
-                getenv("IP_RATE_LIMIT_PER_PERIOD", 60)
-            ) or len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()]) > int(
-                getenv("IP_RATE_LIMIT_PER_SECOND", 3)
+
+            if (
+                len(app.ipratelimit[ip]) > int(getenv("IP_RATE_LIMIT_PER_PERIOD", 60)) or
+                len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()]) > int(getenv("IP_RATE_LIMIT_PER_SECOND", 3))
             ):
+                retry_after = max(
+                    1,
+                    int(getenv("IP_RATE_LIMIT_PERIOD_SECONDS", 60)) - (time.time() - app.ipratelimit[ip][0])
+                )
+                headers = {
+                    "X-Requests-Last-Minute": str(len(app.ipratelimit[ip])),
+                    "X-Requests-Last-Second": str(len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()])),
+                    "X-Server-Time": str(datetime.now()),
+                    "X-Process-Time": str(time.perf_counter() - start_time),
+                    "X-Process-Time-MS": str((time.perf_counter() - start_time) * 1000),
+                    "X-Auth-As": f"{user.username}" if user else str(None),
+                    "Retry-After": str(retry_after),
+                }
                 return JSONResponse(
                     status_code=429,
                     content={"detail": request.state.tl("IP_RATE_LIMIT_EXCEEDED")},
+                    headers=headers,
                 )
+
             try:
                 response = await call_next(request)
             except Exception as exc:
                 app.logger.error(exc)
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=500,
                     content={"detail": request.state.tl("SERVER_ERROR")},
                 )
-            response.headers["X-Auth-As"] = f"{user.username}" if user else str(None)
-            response.headers["X-Requests-Last-Minute"] = str(
-                len([x for x in app.ipratelimit[ip] if x - 60 <= time.time()])
-            )
-            process_time = time.perf_counter() - start_time
-            response.headers["X-Process-Time"] = str(process_time)
-            response.headers["X-Process-Time-MS"] = str(process_time * 1000)
-            response.headers["X-Server-Time"] = str(datetime.now())
+
+            response.headers.update({
+                "X-Auth-As": f"{user.username}" if user else str(None),
+                "X-Requests-Last-Minute": str(len(app.ipratelimit[ip])),
+                "X-Process-Time": str(time.perf_counter() - start_time),
+                "X-Process-Time-MS": str((time.perf_counter() - start_time) * 1000),
+                "X-Server-Time": str(datetime.now()),
+            })
             return response
 
         @app.get(self.path, include_in_schema=False)
@@ -201,59 +215,4 @@ class Methods:
                         + "@example.com",
                         password="".join(choice(ascii_letters) for _ in range(12)),
                     )
-            return JSONResponse({"status": "ok"}, headers=app.no_cache_headers)
-
-        @app.get(self.path + "mail", dependencies=[Depends(app.checks.admin_check)])
-        @track_usage
-        async def mail(request: Request, email: str) -> JSONResponse:
-            app.email.send(email, "Yo", "fastapi test mail message")
-
-        @app.get(self.path + "renderTurnstile", dependencies=[])
-        @track_usage
-        async def render(request: Request) -> HTMLResponse:
-            return HTMLResponse("""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Turnstile</title>
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-    <script>
-        function onFormSubmit(event) {
-            event.preventDefault();
-            const xhr = new XMLHttpRequest();
-            xhr.open("GET", "/validateTurnstile", true);
-            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-            xhr.setRequestHeader("Cf-Turnstile-Response", document.querySelector('[name="cf-turnstile-response"]').value);
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
-                    console.log("Validation success:", xhr.responseText);
-                } else if (xhr.readyState === XMLHttpRequest.DONE) {
-                    console.error("Validation failed:", xhr.responseText);
-                }
-            };
-            xhr.send();
-        }
-    </script>
-</head>
-<body>
-    <h1>Turnstile</h1>
-    <form onsubmit="onFormSubmit(event)">
-        <div class="cf-turnstile" data-sitekey="0x4AAAAAAA270-4SYmm4dwbm"
-         data-action="submit"
-         data-theme="dark"
-         data-callback=""></div>
-        <button type="submit">Validate</button>
-    </form>
-</body>
-</html>
-""")
-
-        @app.get(
-            self.path + "validateTurnstile",
-            dependencies=[Depends(app.checks.turnstile_check)],
-        )
-        @track_usage
-        async def validate(request: Request) -> JSONResponse:
             return JSONResponse({"status": "ok"}, headers=app.no_cache_headers)
