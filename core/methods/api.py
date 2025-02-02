@@ -31,10 +31,14 @@ class Methods:
         async def main_middleware(request: Request, call_next):
             start_time = time.perf_counter()
             language = next(
-                (lang.strip() for lang in request.headers.get("accept-language", "en").split(",") if lang.strip() in app.tlbook),
-                "en"
+                (
+                    lang.strip()
+                    for lang in request.headers.get("accept-language", "en").split(",")
+                    if lang.strip() in app.tlbook
+                ),
+                "en",
             )
-            
+
             setattr(request.state, "tl", lambda text: app.tl(text, language))
             ip = request.headers.get("cf-connecting-ip", request.client.host)
             setattr(request.state, "ip", ip)
@@ -42,7 +46,8 @@ class Methods:
             load_dotenv()
 
             app.ipratelimit[ip] = [
-                t for t in app.ipratelimit[ip]
+                t
+                for t in app.ipratelimit[ip]
                 if time.time() - t <= int(getenv("IP_RATE_LIMIT_PERIOD_SECONDS", 60))
             ]
             app.ipratelimit[ip].append(time.time())
@@ -51,31 +56,26 @@ class Methods:
                 token=request.headers.get("X-Authorization", None)
             )
 
+            response = None
             if (
-                len(app.ipratelimit[ip]) > int(getenv("IP_RATE_LIMIT_PER_PERIOD", 60)) or
-                len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()]) > int(getenv("IP_RATE_LIMIT_PER_SECOND", 3))
-            ):
+                len(app.ipratelimit[ip]) > int(getenv("IP_RATE_LIMIT_PER_PERIOD", 60))
+                or len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()])
+                > int(getenv("IP_RATE_LIMIT_PER_SECOND", 3))
+            ) and (user and "admin" not in user.groups):
                 retry_after = max(
                     1,
-                    int(getenv("IP_RATE_LIMIT_PERIOD_SECONDS", 60)) - (time.time() - app.ipratelimit[ip][0])
+                    int(getenv("IP_RATE_LIMIT_PERIOD_SECONDS", 60))
+                    - (time.time() - app.ipratelimit[ip][0]),
                 )
-                headers = {
-                    "X-Requests-Last-Minute": str(len(app.ipratelimit[ip])),
-                    "X-Requests-Last-Second": str(len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()])),
-                    "X-Server-Time": str(datetime.now()),
-                    "X-Process-Time": str(time.perf_counter() - start_time),
-                    "X-Process-Time-MS": str((time.perf_counter() - start_time) * 1000),
-                    "X-Auth-As": f"{user.username}" if user else str(None),
-                    "Retry-After": str(retry_after),
-                }
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=429,
                     content={"detail": request.state.tl("IP_RATE_LIMIT_EXCEEDED")},
-                    headers=headers,
                 )
-
             try:
-                response = await call_next(request)
+                if response:
+                    response.headers["Retry-After"] = str(retry_after)
+                else:
+                    response = await call_next(request)
             except Exception as exc:
                 app.logger.error(exc)
                 response = JSONResponse(
@@ -83,13 +83,18 @@ class Methods:
                     content={"detail": request.state.tl("SERVER_ERROR")},
                 )
 
-            response.headers.update({
-                "X-Auth-As": f"{user.username}" if user else str(None),
-                "X-Requests-Last-Minute": str(len(app.ipratelimit[ip])),
-                "X-Process-Time": str(time.perf_counter() - start_time),
-                "X-Process-Time-MS": str((time.perf_counter() - start_time) * 1000),
-                "X-Server-Time": str(datetime.now()),
-            })
+            response.headers.update(
+                {
+                    "X-Auth-As": f"{user.username}" if user else str(None),
+                    "X-Requests-Last-Minute": str(len(app.ipratelimit[ip])),
+                    "X-Requests-Last-Second": str(
+                        len([x for x in app.ipratelimit[ip] if x + 1 >= time.time()])
+                    ),
+                    "X-Process-Time": str(time.perf_counter() - start_time),
+                    "X-Process-Time-MS": str((time.perf_counter() - start_time) * 1000),
+                    "X-Server-Time": str(datetime.now()),
+                }
+            )
             return response
 
         @app.get(self.path, include_in_schema=False)

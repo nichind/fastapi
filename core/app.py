@@ -67,6 +67,10 @@ tags_metadata = [
         "name": "default",
         "description": "Default endpoints.",
     },
+    {
+        "name": "auth",
+        "description": "Auth endpoints.",
+    }
 ]
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
@@ -141,7 +145,7 @@ app.no_cache_headers = {
 app.info("Loading modules from core.methods...")
 app.checks = Checks(app)
 
-modules = glob(join(dirname(__file__) + "/core/methods/", "*.py"))
+modules = glob(join(dirname(__file__) + "/methods/", "*.py"))
 __all__ = [
     basename(f)[:-3] for f in modules if isfile(f) and not f.endswith("__init__.py")
 ]

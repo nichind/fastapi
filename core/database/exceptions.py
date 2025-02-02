@@ -1,15 +1,21 @@
-class NoID(Exception):
-    def __init__(self):
-        super().__init__("No ID kwarg found and item has no id attribute.")
+class BaseException(Exception):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.message = self.__doc__
+
+class NoID(BaseException):
+    """
+    No id found
+    """
 
 
 class Blacklisted(Exception):
     def __init__(self, key: str, value: str):
-        super().__init__(
-            f"Value {value} for {key} is blacklisted.",
-            "Ignore by setting ignore_blacklist=True",
-            sep="\n",
+        message = (
+            f"Value {value} for {key} is blacklisted.\n"
+            "Ignore by setting ignore_blacklist=True"
         )
+        super().__init__(message)
 
 
 class Duplicate(Exception): ...
@@ -26,11 +32,16 @@ class NotUnique(Exception): ...
 
 class NoCryptKey(Exception):
     def __init__(self, key: str = "CRYPT_KEY"):
-        super().__init__(
-            f"No crypt key found. Please set the {key} environment variable."
+        message = (
+            f"No crypt key found. Please set the {key} environment variable.\n"
+            "For more information, check the README."
         )
+        super().__init__(message)
 
 
 class NotIknowWhatImDoing(Exception):
     def __init__(self):
-        super().__init__("Are you sure you know what you're doing?")
+        message = (
+            "Are you sure you know what you're doing?"
+        )
+        super().__init__(message)

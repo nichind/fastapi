@@ -67,8 +67,10 @@ class PerfomanceMeter:
 
 perfomance = PerfomanceMeter()
 
+def db_debug(*args, **kwargs):
+    if os.getenv("DB_DEBUG", False):
+        logger.debug(*args, **kwargs)
 
-db_debug = lambda *args, **kwargs: logger.debug(*args, **kwargs) if os.getenv("DB_DEBUG", False) else None
 
 class BaseItem(Base):
     """
@@ -505,6 +507,7 @@ class User(BaseItem):
     username = Column(
         String(48), unique=True, nullable=False, info={"searchable": True, "safe": True}
     )
+    name = Column(String(48), info={"searchable": True, "safe": True})
     email = Column(String(128), unique=True)
     password = Column(String(256))
     reg_type = Column(String(32))
